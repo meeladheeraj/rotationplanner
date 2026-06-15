@@ -6,3 +6,5 @@ export { PRESETS, NMC_CRMI_2021, getPreset } from "./presets.js";
 export type { Preset } from "./presets.js";
 export { repairEdit, validateInternSchedule, proposeSwap } from "./repairEdit.js";
 export type { RotationEdit, RepairEditResult } from "./repairEdit.js";
+export { analyzeFeasibility, countUncoverableCells } from "./feasibility.js";
+export type { FeasibilityResult, UncoverableCell } from "./feasibility.js";

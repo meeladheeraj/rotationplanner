@@ -5,3 +5,5 @@ dist/
 .env.local
 *.log
 .DS_Store
+# scratch diagnostics (cannot be unlinked on the build mount; never commit them)
+**/diag*.ts

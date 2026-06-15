@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { generate } from "../generate.js";
 import { validate } from "../validate.js";
+import { analyzeFeasibility } from "../feasibility.js";
 import { mulberry32 } from "../rng.js";
 import type { Department } from "../types.js";
 
@@ -57,11 +58,18 @@ test("respects elevated per-department minCoverage", () => {
 test("property: 200 random configs always produce structurally valid (contiguous) schedules", () => {
   // The 3-phase algorithm GUARANTEES structural validity — every intern gets each
   // department exactly once as a single contiguous block of the right duration.
-  // It does NOT guarantee full coverage for every config (the repair pass is
-  // best-effort / heuristic). So the hard invariant we assert is contiguity:
-  // any violation must be a coverage shortfall, never a structural one.
+  // It does NOT guarantee full COVERAGE: a (week, dept) cell can be structurally
+  // uncoverable for some duration sets (a department block can only start where a
+  // subset of the other blocks exactly fills the preceding weeks — see
+  // analyzeFeasibility). So we split the metric in two:
+  //   * structural validity (contiguity/duration) — a HARD invariant, asserted.
+  //   * coverage — measured separately for FEASIBLE vs INFEASIBLE configs.
+  // The earlier "~130/200 shortfall" figure was misleading: it was dominated by
+  // structurally infeasible configs, not by repair quality.
   const rng = mulberry32(12345);
-  let coverageShortfalls = 0;
+  let feasibleConfigs = 0;
+  let feasibleShortfalls = 0;
+  let infeasibleConfigs = 0;
   for (let i = 0; i < 200; i++) {
     const m = 4 + Math.floor(rng() * 8); // 4–11 departments
     const departments: Department[] = Array.from({ length: m }, (_, d) => ({
@@ -82,12 +90,26 @@ test("property: 200 random configs always produce structurally valid (contiguous
       0,
       `config ${i} (n=${n}, m=${m}) had ${structural.length} STRUCTURAL violations`,
     );
-    if (!v.ok) coverageShortfalls++;
+
+    const feasible = analyzeFeasibility({ n, departments });
+    // The reported uncoverableCells stat must match the feasibility analysis.
+    assert.equal(res.stats.uncoverableCells, feasible.uncoverable.length);
+    if (feasible.ok) {
+      feasibleConfigs++;
+      if (!v.ok) feasibleShortfalls++;
+    } else {
+      infeasibleConfigs++;
+    }
   }
-  // Coverage is a heuristic outcome, not a structural guarantee, so it is NOT a
-  // hard gate here. We record the rate as a Phase-1 quality metric — improving it
-  // (better candidate diversity / smarter repair) is tracked in PROGRESS.md.
   console.log(
-    `[metric] coverage shortfalls on random configs: ${coverageShortfalls}/200`,
+    `[metric] coverage shortfalls among FEASIBLE configs: ${feasibleShortfalls}/${feasibleConfigs}` +
+      ` (structurally infeasible, excluded: ${infeasibleConfigs}/200)`,
+  );
+  // Among genuinely feasible configs the heuristic repair should leave very few
+  // shortfalls. Generous bound so the test is stable, but it would have FAILED at
+  // the old "130/200" interpretation — proving the metric is now meaningful.
+  assert.ok(
+    feasibleShortfalls <= Math.ceil(feasibleConfigs * 0.2),
+    `too many shortfalls on feasible configs: ${feasibleShortfalls}/${feasibleConfigs}`,
   );
 });

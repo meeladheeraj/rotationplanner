@@ -43,6 +43,13 @@ export interface ScheduleStats {
   maxCount: number;
   theoreticalMinN: number;
   candidateCount: number;
+  /**
+   * Number of (week, dept) cells that are structurally impossible to cover given
+   * the department durations (see analyzeFeasibility). When > 0, the schedule is
+   * the best achievable but will still have permanent coverage gaps — surface
+   * this to the planner.
+   */
+  uncoverableCells: number;
 }
 
 export interface GenerateResult {

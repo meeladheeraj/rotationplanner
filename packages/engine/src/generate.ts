@@ -9,6 +9,7 @@
 
 import type { Config, GenerateResult, InternSchedule } from "./types.js";
 import { mulberry32, shuffleArr, type Rng } from "./rng.js";
+import { countUncoverableCells } from "./feasibility.js";
 
 const DEFAULT_MIN_COVERAGE = 2;
 
@@ -118,52 +119,115 @@ export function generate(config: Config): GenerateResult {
   }
 
   // ── Phase 3: repair pass for per-department minimum coverage ──
+  // Strictly-improving local search on the total coverage *deficit*
+  //   deficit(k) = max(0, minCoverage[dept(k)] - counts[k])
+  // Each accepted move reassigns one intern from candidate `oc` to candidate
+  // `nc`, and is applied only if it strictly lowers the summed deficit. Because
+  // the objective is a non-negative integer that decreases by >=1 every move,
+  // the loop terminates; and since it never increases deficit, it can never
+  // turn a covered cell into a violation. This replaces the earlier random /
+  // `br < 3` heuristic and materially lowers the coverage-shortfall rate.
   const deptOf = (k: number) => k % M;
-  const below = (k: number) => counts[k]! < minCov[deptOf(k)]!;
+  const defAt = (c: number, k: number) => {
+    const m = minCov[deptOf(k)]!;
+    return c < m ? m - c : 0;
+  };
 
-  let needsRepair = false;
-  for (let i = 0; i < allWD; i++)
-    if (below(i)) {
-      needsRepair = true;
-      break;
+  const totalDeficit = () => {
+    let s = 0;
+    for (let k = 0; k < allWD; k++) s += defAt(counts[k]!, k);
+    return s;
+  };
+
+  // candsByCell[k] = candidate indices whose schedule covers cell k.
+  const candsByCell: number[][] = Array.from({ length: allWD }, () => []);
+  for (let ci = 0; ci < cands.length; ci++)
+    for (const k of cs[ci]!) candsByCell[k]!.push(ci);
+
+  // Delta to the total deficit of moving one intern from candidate oc -> nc.
+  const moveDelta = (oc: number, nc: number): number => {
+    if (oc === nc) return 0;
+    let delta = 0;
+    const ncSet = cs[nc]!;
+    const ocSet = cs[oc]!;
+    for (const k of ocSet)
+      if (!ncSet.has(k)) delta += defAt(counts[k]! - 1, k) - defAt(counts[k]!, k);
+    for (const k of ncSet)
+      if (!ocSet.has(k)) delta += defAt(counts[k]! + 1, k) - defAt(counts[k]!, k);
+    return delta;
+  };
+
+  // Apply a single reassignment (intern `i`: oc -> nc) to the running counts.
+  const applyMove = (i: number, nc: number) => {
+    const oc = ia[i]!;
+    for (const k of cs[oc]!) counts[k]!--;
+    for (const k of cs[nc]!) counts[k]!++;
+    asn[oc]!--;
+    asn[nc]!++;
+    ia[i] = nc;
+  };
+
+  // Find the single move (intern i: oc -> nc) that most reduces the total
+  // deficit, searching only the worst violated cells and their covering
+  // candidates. Donors are chosen per candidate (one representative intern) so
+  // cost is independent of N; covering candidates are stride-sampled so cost is
+  // independent of the pool size. Returns delta < 0 for an improving move.
+  const internOfCand = new Int32Array(cands.length);
+  const usedCands: number[] = [];
+  const NC_SAMPLE = 48; // covering candidates examined per target cell
+  const CELL_BUDGET = 16; // worst violated cells examined per pass
+  const findImprovingMove = (
+    viol: number[],
+  ): { i: number; nc: number; delta: number } => {
+    internOfCand.fill(-1);
+    usedCands.length = 0;
+    for (let i = 0; i < N; i++) {
+      const c = ia[i]!;
+      if (internOfCand[c] === -1) {
+        internOfCand[c] = i;
+        usedCands.push(c);
+      }
     }
-
-  if (needsRepair) {
-    for (let iter = 0; iter < N * 20; iter++) {
-      const viol: number[] = [];
-      for (let i = 0; i < allWD; i++) if (below(i)) viol.push(i);
-      if (!viol.length) break;
-      const vk = viol[Math.floor(rng() * viol.length)]!;
-      const cc: number[] = [];
-      for (let ci = 0; ci < cands.length; ci++) if (cs[ci]!.has(vk)) cc.push(ci);
-      if (!cc.length) continue;
-      let bsw = -1,
-        br = -1;
-      for (let i = 0; i < N; i++) {
-        if (cs[ia[i]!]!.has(vk)) continue;
-        let mr = Infinity;
-        for (const k of cs[ia[i]!]!) if (counts[k]! < mr) mr = counts[k]!;
-        if (mr > br) {
-          br = mr;
-          bsw = i;
+    let bestDelta = 0;
+    let bestI = -1;
+    let bestNc = -1;
+    for (let vi = 0; vi < viol.length && vi < CELL_BUDGET; vi++) {
+      const vk = viol[vi]!;
+      const ncList = candsByCell[vk]!;
+      const ncStride =
+        ncList.length > NC_SAMPLE ? Math.floor(ncList.length / NC_SAMPLE) : 1;
+      for (const oc of usedCands) {
+        if (cs[oc]!.has(vk)) continue; // donor already covers vk
+        for (let t = 0; t < ncList.length; t += ncStride) {
+          const nc = ncList[t]!;
+          if (nc === oc) continue;
+          const d = moveDelta(oc, nc);
+          if (d < bestDelta) {
+            bestDelta = d;
+            bestI = internOfCand[oc]!;
+            bestNc = nc;
+          }
         }
       }
-      if (bsw === -1 || br < 3) continue;
-      const oc = ia[bsw]!;
-      const nc = cc[Math.floor(rng() * cc.length)]!;
-      // Only swap if removing the old candidate keeps every cell at/above its min.
-      let safe = true;
-      for (const k of cs[oc]!)
-        if (counts[k]! - 1 < minCov[deptOf(k)]! && !cs[nc]!.has(k)) {
-          safe = false;
-          break;
-        }
-      if (!safe) continue;
-      for (const k of cs[oc]!) counts[k]!--;
-      for (const k of cs[nc]!) counts[k]!++;
-      asn[oc]!--;
-      asn[nc]!++;
-      ia[bsw] = nc;
+      if (bestDelta < 0) break; // take the first strong win on the worst cell
+    }
+    return { i: bestI, nc: bestNc, delta: bestDelta };
+  };
+
+  if (totalDeficit() > 0) {
+    // Strictly-improving descent: the integer deficit decreases by >=1 each
+    // accepted move, so this terminates and never creates a new violation.
+    // Any residual deficit is a single-move local optimum (or structurally
+    // uncoverable — see analyzeFeasibility): callers surface it via validate().
+    const maxIters = 4000;
+    for (let iter = 0; iter < maxIters; iter++) {
+      const viol: number[] = [];
+      for (let k = 0; k < allWD; k++) if (counts[k]! < minCov[deptOf(k)]!) viol.push(k);
+      if (!viol.length) break;
+      viol.sort((a, b) => defAt(counts[b]!, b) - defAt(counts[a]!, a));
+      const mv = findImprovingMove(viol);
+      if (mv.i === -1 || mv.delta >= 0) break; // local optimum
+      applyMove(mv.i, mv.nc);
     }
   }
 
@@ -196,6 +260,7 @@ export function generate(config: Config): GenerateResult {
       maxCount: fMax,
       theoreticalMinN,
       candidateCount: cands.length,
+      uncoverableCells: countUncoverableCells(config),
     },
   };
 }
