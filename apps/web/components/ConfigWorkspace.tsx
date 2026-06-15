@@ -6,6 +6,7 @@ import { schedToBlocks, type Config, type Department } from "@rp/engine";
 import { useScheduler } from "@/lib/client/useScheduler";
 import { exportScheduleCsv } from "@/lib/client/csv";
 import { ScheduleViews } from "@/components/ScheduleViews";
+import { SavedSchedules } from "@/components/SavedSchedules";
 
 interface Props {
   configId: string;
@@ -20,6 +21,7 @@ export function ConfigWorkspace(props: Props) {
   const [departments, setDepartments] = useState<Department[]>(props.departments);
   const { generating, result, error, generate } = useScheduler();
   const [saveState, setSaveState] = useState<string | null>(null);
+  const [savedKey, setSavedKey] = useState(0);
 
   const totalWeeks = departments.reduce((a, d) => a + d.weeks, 0);
 
@@ -66,6 +68,7 @@ export function ConfigWorkspace(props: Props) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Save failed");
       setSaveState(`Saved as version ${data.version} (server re-validated ✓)`);
+      setSavedKey((k) => k + 1);
     } catch (e) {
       setSaveState(e instanceof Error ? e.message : "Save failed");
     }
@@ -180,6 +183,8 @@ export function ConfigWorkspace(props: Props) {
           <ScheduleViews result={result} departments={departments} />
         </section>
       )}
+
+      <SavedSchedules configId={props.configId} refreshKey={savedKey} />
     </div>
   );
 }
