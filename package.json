@@ -1,0 +1,11 @@
+{
+  "name": "rotation-planner",
+  "private": true,
+  "version": "0.0.0",
+  "description": "RotationPlanner — multi-tenant intern rotation scheduler (monorepo)",
+  "packageManager": "pnpm@9.0.0",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ]
+}
