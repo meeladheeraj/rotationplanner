@@ -7,3 +7,6 @@ dist/
 .DS_Store
 # scratch diagnostics (cannot be unlinked on the build mount; never commit them)
 **/diag*.ts
+# pnpm temp artifacts left by failed in-mount installs (mount forbids unlink)
+_tmp_*
+.pnpm-store/
