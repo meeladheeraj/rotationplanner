@@ -5,9 +5,12 @@
  * re-runs @rp/engine validate() before persisting. The DB never stores an
  * invalid roster. (plan §4 "trust nothing from the client".)
  */
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 
 import {
+  proposeSwap,
+  repairEdit,
+  schedToBlocks,
   validate,
   type Config as EngineConfig,
   type InternSchedule,
@@ -19,6 +22,7 @@ import {
   assignments,
   configs,
   departments,
+  manualEdits,
   schedules,
   type AssignmentBlock,
   type ScheduleStatus,
@@ -212,4 +216,235 @@ function computeStats(config: EngineConfig, internSchedules: InternSchedule[]) {
     candidateCount: internSchedules.length,
     uncoverableCells: 0,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Listing & detail (tenant-scoped)
+// ---------------------------------------------------------------------------
+
+export interface ScheduleSummary {
+  id: string;
+  configId: string;
+  version: number;
+  status: ScheduleStatus;
+  generatedAt: Date;
+  engineVersion: string;
+  stats: import("@rp/engine").ScheduleStats;
+}
+
+export interface ScheduleDetail extends ScheduleSummary {
+  assignments: {
+    internIndex: number;
+    internLabel: string;
+    rotation: AssignmentBlock[];
+  }[];
+}
+
+/** All schedule versions for a config, newest first. Tenant-scoped. */
+export async function listSchedules(
+  ctx: DataCtx,
+  configId: string,
+): Promise<ScheduleSummary[]> {
+  const rows = await ctx.db
+    .select()
+    .from(schedules)
+    .where(and(eq(schedules.configId, configId), eq(schedules.tenantId, ctx.tenantId)))
+    .orderBy(desc(schedules.version));
+  return rows.map(toSummary);
+}
+
+/** A single schedule + its assignments. Tenant-scoped; null if not owned. */
+export async function getScheduleDetail(
+  ctx: DataCtx,
+  scheduleId: string,
+): Promise<ScheduleDetail | null> {
+  const rows = await ctx.db
+    .select()
+    .from(schedules)
+    .where(and(eq(schedules.id, scheduleId), eq(schedules.tenantId, ctx.tenantId)))
+    .limit(1);
+  const s = rows[0];
+  if (!s) return null;
+  const aRows = await ctx.db
+    .select()
+    .from(assignments)
+    .where(eq(assignments.scheduleId, scheduleId))
+    .orderBy(asc(assignments.internIndex));
+  return {
+    ...toSummary(s),
+    assignments: aRows.map((a) => ({
+      internIndex: a.internIndex,
+      internLabel: a.internLabel,
+      rotation: a.rotation,
+    })),
+  };
+}
+
+type ScheduleRow = typeof schedules.$inferSelect;
+function toSummary(s: ScheduleRow): ScheduleSummary {
+  return {
+    id: s.id,
+    configId: s.configId,
+    version: s.version,
+    status: s.status,
+    generatedAt: s.generatedAt,
+    engineVersion: s.engineVersion,
+    stats: s.stats,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Publish flow — published rosters are IMMUTABLE
+// ---------------------------------------------------------------------------
+
+/**
+ * Transition a draft schedule to 'published'. Published rosters are immutable:
+ * any subsequent write path (manual swap, re-publish) must refuse them. Audit is
+ * written in the same transaction. Tenant-scoped; throws 404 if not owned, 409 if
+ * not currently a draft.
+ */
+export async function publishSchedule(
+  ctx: DataCtx,
+  scheduleId: string,
+): Promise<{ id: string; version: number; status: ScheduleStatus }> {
+  return ctx.db.transaction(async (tx) => {
+    const rows = await tx
+      .select()
+      .from(schedules)
+      .where(and(eq(schedules.id, scheduleId), eq(schedules.tenantId, ctx.tenantId)))
+      .limit(1);
+    const s = rows[0];
+    if (!s) throw new HttpError(404, "Schedule not found");
+    if (s.status === "published") {
+      throw new HttpError(409, "Schedule is already published and is immutable");
+    }
+    if (s.status !== "draft") {
+      throw new HttpError(409, `Cannot publish a schedule with status '${s.status}'`);
+    }
+    await tx
+      .update(schedules)
+      .set({ status: "published" })
+      .where(and(eq(schedules.id, scheduleId), eq(schedules.tenantId, ctx.tenantId)));
+    await writeAudit(tx, {
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      action: "publish",
+      entityType: "schedule",
+      entityId: scheduleId,
+      metadata: { configId: s.configId, version: s.version },
+    });
+    return { id: scheduleId, version: s.version, status: "published" as const };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Manual swap — exchange two interns' rotations via engine repairEdit
+// ---------------------------------------------------------------------------
+
+export interface SwapResult {
+  scheduleId: string;
+  violations: Violation[];
+}
+
+/** Reconstruct engine InternSchedule[] from persisted assignment blocks. */
+function detailToInternSchedules(
+  assignmentRows: ScheduleDetail["assignments"],
+  totalWeeks: number,
+): InternSchedule[] {
+  return assignmentRows.map((a) => {
+    const schedule = new Array<number>(totalWeeks).fill(-1);
+    for (const blk of a.rotation) {
+      for (let w = blk.start; w <= blk.end; w++) schedule[w] = blk.dept;
+    }
+    return { id: a.internIndex, schedule };
+  });
+}
+
+/**
+ * Swap the full-year rotations of two interns on a DRAFT schedule. The engine
+ * re-validates the whole roster (repairEdit) before anything is persisted;
+ * published schedules are refused (immutable). The assignment rows, a
+ * manual_edits record, and the audit_log row are all written in one transaction.
+ */
+export async function applyManualSwap(
+  ctx: DataCtx,
+  scheduleId: string,
+  internIndexA: number,
+  internIndexB: number,
+): Promise<SwapResult> {
+  if (internIndexA === internIndexB) {
+    throw new HttpError(400, "Cannot swap an intern with itself");
+  }
+  const detail = await getScheduleDetail(ctx, scheduleId);
+  if (!detail) throw new HttpError(404, "Schedule not found");
+  if (detail.status === "published") {
+    throw new HttpError(409, "Published schedules are immutable and cannot be edited");
+  }
+
+  const loaded = await loadEngineConfig(ctx, detail.configId);
+  if (!loaded) throw new HttpError(404, "Config not found");
+
+  const internSchedules = detailToInternSchedules(detail.assignments, loaded.totalWeeks);
+  const edits = proposeSwap(internSchedules, internIndexA, internIndexB);
+  if (edits.length === 0) {
+    throw new HttpError(400, "One or both intern indices are not present in this schedule");
+  }
+  const result = repairEdit(loaded.engineConfig, internSchedules, edits);
+  if (!result.ok) {
+    throw new HttpError(
+      422,
+      JSON.stringify({ message: "Swap would make the roster invalid", violations: result.violations }),
+    );
+  }
+
+  const deptNames = loaded.engineConfig.departments.map((d) => d.name);
+  const byIndex = new Map(detail.assignments.map((a) => [a.internIndex, a]));
+  const a = byIndex.get(internIndexA)!;
+  const b = byIndex.get(internIndexB)!;
+  const rotA = blocksFor(result.applied, internIndexA, deptNames);
+  const rotB = blocksFor(result.applied, internIndexB, deptNames);
+
+  await ctx.db.transaction(async (tx) => {
+    await tx
+      .update(assignments)
+      .set({ rotation: rotA })
+      .where(and(eq(assignments.scheduleId, scheduleId), eq(assignments.internIndex, internIndexA)));
+    await tx
+      .update(assignments)
+      .set({ rotation: rotB })
+      .where(and(eq(assignments.scheduleId, scheduleId), eq(assignments.internIndex, internIndexB)));
+    await tx.insert(manualEdits).values({
+      scheduleId,
+      editedBy: ctx.userId ?? null,
+      action: "swap",
+      payload: { internIndexA, internIndexB, labelA: a.internLabel, labelB: b.internLabel },
+      validationResult: { ok: true, violations: [] },
+    });
+    await writeAudit(tx, {
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      action: "manual_swap",
+      entityType: "schedule",
+      entityId: scheduleId,
+      metadata: { internIndexA, internIndexB },
+    });
+  });
+
+  return { scheduleId, violations: [] };
+}
+
+/** Extract one intern's rotation as persisted AssignmentBlock[] from a roster. */
+function blocksFor(
+  roster: InternSchedule[],
+  internId: number,
+  deptNames: string[],
+): AssignmentBlock[] {
+  const found = roster.find((s) => s.id === internId);
+  if (!found) return [];
+  return schedToBlocks(found.schedule).map((b) => ({
+    dept: b.dept,
+    deptName: deptNames[b.dept] ?? "",
+    start: b.start,
+    end: b.end,
+  }));
 }

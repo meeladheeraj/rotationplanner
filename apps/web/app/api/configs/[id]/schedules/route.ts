@@ -3,12 +3,21 @@ import { NextResponse } from "next/server";
 import { handle, readJson } from "@/lib/http";
 import { HttpError, requireRole, requireTenant } from "@/lib/tenant";
 import {
+  listSchedules,
   saveSchedule,
   type SubmittedAssignment,
 } from "@/lib/data/schedules";
 import type { AssignmentBlock } from "@/db/schema";
 
 type Ctx = { params: Promise<{ id: string }> };
+
+// GET /api/configs/:id/schedules — list this config's schedule versions.
+export const GET = handle(async (_req: Request, { params }: Ctx) => {
+  const ctx = await requireTenant();
+  const { id } = await params;
+  const schedules = await listSchedules(ctx, id);
+  return NextResponse.json({ schedules });
+});
 
 function parseAssignments(raw: unknown): SubmittedAssignment[] {
   if (!Array.isArray(raw) || raw.length === 0) {
