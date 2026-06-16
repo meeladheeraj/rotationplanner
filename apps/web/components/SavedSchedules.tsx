@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { EmptySchedulesArt } from "@/components/Illustrations";
+
 interface ScheduleSummary {
   id: string;
   version: number;
@@ -96,7 +98,20 @@ export function SavedSchedules({ configId, refreshKey }: { configId: string; ref
     window.setTimeout(() => setCopied((c) => (c === id ? null : c)), 1800);
   }
 
-  if (items.length === 0) return null;
+  if (items.length === 0) {
+    return (
+      <section className="mt-8 rounded-lg border border-dashed border-gray-300 bg-white px-5 py-10">
+        <div className="flex flex-col items-center text-center">
+          <EmptySchedulesArt className="h-16 w-16 text-brand" />
+          <h2 className="mt-3 text-sm font-semibold text-gray-700">No saved versions yet</h2>
+          <p className="mt-1 max-w-xs text-xs text-gray-500">
+            Generate a schedule above and click “Save schedule” to keep a version here — then
+            publish, share, or export it.
+          </p>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="mt-8 rounded-lg border border-gray-200 bg-white p-5">

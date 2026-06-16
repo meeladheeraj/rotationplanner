@@ -3,6 +3,7 @@ import Link from "next/link";
 import { listConfigs } from "@/lib/data/configs";
 import { requireTenant } from "@/lib/tenant";
 import { NewConfigButton } from "@/components/NewConfigButton";
+import { EmptyConfigsArt } from "@/components/Illustrations";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +24,16 @@ export default async function DashboardPage() {
       </div>
 
       {configs.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-gray-300 p-12 text-center text-gray-500">
-          No configurations yet. Create one from the NMC preset to get started.
+        <div className="flex flex-col items-center rounded-lg border border-dashed border-gray-300 px-6 py-14 text-center">
+          <EmptyConfigsArt className="h-28 w-28 text-brand" />
+          <h2 className="mt-5 text-base font-semibold text-gray-700">No configurations yet</h2>
+          <p className="mt-1 max-w-sm text-sm text-gray-500">
+            Create one from the NMC CRMI 2021 preset (or build your own) to generate your first
+            validated rotation roster.
+          </p>
+          <div className="mt-5">
+            <NewConfigButton />
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

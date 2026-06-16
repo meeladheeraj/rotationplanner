@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { getCurrentUser } from "@/lib/session";
 import { LogoutButton } from "@/components/LogoutButton";
+import { LogoMark } from "@/components/Illustrations";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser();
@@ -12,7 +13,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="min-h-screen">
       <header className="border-b border-gray-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-          <Link href="/dashboard" className="text-lg font-bold tracking-tight">
+          <Link href="/dashboard" className="inline-flex items-center gap-2 text-lg font-bold tracking-tight">
+            <LogoMark className="h-6 w-6 text-brand" />
             RotationPlanner
           </Link>
           <div className="flex items-center gap-4 text-sm text-gray-600">
