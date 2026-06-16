@@ -9,6 +9,8 @@
  * Run via `pnpm e2e:http` (see package.json), which starts the server with
  * E2E_PGLITE=1 and points BASE_URL at it. Exits non-zero on the first failure.
  */
+import ExcelJS from "exceljs";
+
 import {
   generate,
   schedToBlocks,
@@ -161,6 +163,53 @@ async function main() {
   );
   const head = Buffer.from(await pdf.arrayBuffer()).subarray(0, 5).toString("latin1");
   ok(head.startsWith("%PDF"), `pdf body starts with %PDF (got ${JSON.stringify(head)})`);
+
+  // 10b. FEEDBACK #8 — EPHEMERAL student-name mapping: upload a name workbook,
+  //      parse it (server, request scope only — never persisted), then export a
+  //      named Excel and confirm the names land in the workbook.
+  const namesWb = new ExcelJS.Workbook();
+  const namesWs = namesWb.addWorksheet("Students");
+  namesWs.addRow(["Name", "Roll No"]);
+  for (const is of result.internSchedules) namesWs.addRow([`Student ${is.id}`, `R${is.id}`]);
+  const namesBuf = Buffer.from((await namesWb.xlsx.writeBuffer()) as ArrayBuffer);
+
+  const namesForm = new FormData();
+  namesForm.append("file", new Blob([new Uint8Array(namesBuf)]), "names.xlsx");
+  const parseRes = await authed(`/api/schedules/${scheduleId}/names`, { method: "POST", body: namesForm });
+  ok(parseRes.status === 200, `names upload parsed → 200 (got ${parseRes.status})`);
+  const parsed = (await parseRes.json()) as { count: number; nameByIndex: Record<string, string> };
+  ok(parsed.count === 135, `parsed 135 names (got ${parsed.count})`);
+  ok(parsed.nameByIndex["1"] === "Student 1", "name map keys interns by 1-based index");
+
+  // Wrong count is rejected (count must equal N).
+  const badWb = new ExcelJS.Workbook();
+  const badWs = badWb.addWorksheet("Students");
+  badWs.addRow(["Name"]);
+  badWs.addRow(["Only One"]);
+  const badBuf = Buffer.from((await badWb.xlsx.writeBuffer()) as ArrayBuffer);
+  const badForm = new FormData();
+  badForm.append("file", new Blob([new Uint8Array(badBuf)]), "bad.xlsx");
+  const badParse = await authed(`/api/schedules/${scheduleId}/names`, { method: "POST", body: badForm });
+  ok(badParse.status === 422, `name count mismatch rejected → 422 (got ${badParse.status})`);
+
+  // Named Excel export (POST with the ephemeral map) substitutes the names.
+  const namedXlsx = await authed(`/api/schedules/${scheduleId}/xlsx`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ nameByIndex: parsed.nameByIndex }),
+  });
+  ok(namedXlsx.status === 200, `named xlsx export → 200 (got ${namedXlsx.status})`);
+  const xlsxBuf = Buffer.from(await namedXlsx.arrayBuffer());
+  const roundTrip = new ExcelJS.Workbook();
+  await roundTrip.xlsx.load(xlsxBuf as unknown as ArrayBuffer);
+  const rosterSheet = roundTrip.getWorksheet("Roster")!;
+  ok(
+    rosterSheet.getRow(2).getCell(1).value === "Student 1",
+    "named Excel roster shows the real student name, not 'Intern N'",
+  );
+
+  // The persisted schedule remains anonymous — the public share page shows no names.
+  ok(!/Student 1\b/.test(pubHtml), "public share page stays anonymous (no student names)");
 
   // 11. Cookieless access to a protected API is rejected
   const noauth = await cookieless(`/api/configs`);

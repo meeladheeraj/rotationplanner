@@ -27,9 +27,12 @@ function deptWeeklyStudents(
 export function ScheduleViews({
   result,
   departments,
+  nameById,
 }: {
   result: GenerateResult;
   departments: Department[];
+  /** Optional EPHEMERAL student-name mapping (intern id → name); display only. */
+  nameById?: Record<number, string>;
 }) {
   const [tab, setTab] = useState<Tab>("timeline");
   const [search, setSearch] = useState("");
@@ -37,11 +40,17 @@ export function ScheduleViews({
   const [selectedDept, setSelectedDept] = useState(0);
   const totalWeeks = result.stats.totalWeeks;
 
+  /** Display label for an intern: the mapped name if present, else "S{id}". */
+  const labelFor = (id: number): string => nameById?.[id] ?? `S${id}`;
+  const named = !!nameById;
+
   const filtered = useMemo(() => {
-    const q = search.trim();
+    const q = search.trim().toLowerCase();
     if (!q) return result.internSchedules;
-    return result.internSchedules.filter((s) => String(s.id).includes(q));
-  }, [result.internSchedules, search]);
+    return result.internSchedules.filter(
+      (s) => String(s.id).includes(q) || (nameById?.[s.id]?.toLowerCase().includes(q) ?? false),
+    );
+  }, [result.internSchedules, search, nameById]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
@@ -93,7 +102,7 @@ export function ScheduleViews({
               setSearch(e.target.value);
               setPage(0);
             }}
-            placeholder="Search intern ID…"
+            placeholder={named ? "Search name or ID…" : "Search intern ID…"}
             className="w-48 rounded-md border border-gray-300 px-3 py-1.5 font-mono text-sm focus:border-brand focus:outline-none"
           />
           <span className="text-xs text-gray-400">
@@ -110,8 +119,11 @@ export function ScheduleViews({
             const blocks = schedToBlocks(schedule);
             return (
               <div key={id} className="mb-1 flex min-w-[600px] items-center">
-                <div className="w-12 flex-shrink-0 pr-2 text-right font-mono text-[11px] text-gray-400">
-                  S{id}
+                <div
+                  className={`flex-shrink-0 truncate pr-2 text-right font-mono text-[11px] text-gray-400 ${named ? "w-28" : "w-12"}`}
+                  title={labelFor(id)}
+                >
+                  {labelFor(id)}
                 </div>
                 <div className="flex h-6 flex-1 gap-px overflow-hidden rounded">
                   {blocks.map((b, bi) => {
@@ -199,8 +211,10 @@ export function ScheduleViews({
             return (
               <div key={id} className="overflow-hidden rounded-lg border border-gray-200 bg-white">
                 <div className="flex items-center justify-between bg-brand px-4 py-3 text-white">
-                  <div>
-                    <div className="text-base font-bold">Intern S{id}</div>
+                  <div className="min-w-0">
+                    <div className="truncate text-base font-bold" title={labelFor(id)}>
+                      {named ? labelFor(id) : `Intern S${id}`}
+                    </div>
                     <div className="text-[11px] opacity-80">{totalWeeks}-week rotation</div>
                   </div>
                   <div className="font-mono text-2xl font-bold opacity-30">
@@ -307,7 +321,7 @@ export function ScheduleViews({
                                 key={id}
                                 className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[11px] text-gray-600"
                               >
-                                S{id}
+                                {labelFor(id)}
                               </span>
                             ))}
                           </div>

@@ -5,7 +5,7 @@ import { getConfig } from "@/lib/data/configs";
 import { getScheduleDetail } from "@/lib/data/schedules";
 import { requireTenant } from "@/lib/tenant";
 import { reconstructResult } from "@/lib/schedule/reconstruct";
-import { ScheduleViews } from "@/components/ScheduleViews";
+import { NamedScheduleView } from "@/components/NamedScheduleView";
 
 export const dynamic = "force-dynamic";
 
@@ -66,17 +66,15 @@ export default async function ScheduleViewPage({
           {detail.assignments.length} interns · {detail.stats.totalWeeks} weeks · min{" "}
           {detail.stats.minCount}/dept/wk
         </span>
-        <div className="ml-auto flex gap-2">
-          <a
-            href={`/api/schedules/${detail.id}/pdf`}
-            className="rounded-md border border-gray-300 px-4 py-2 text-sm hover:bg-gray-100"
-          >
-            Download PDF
-          </a>
-        </div>
       </div>
 
-      <ScheduleViews result={result} departments={departments} />
+      <NamedScheduleView
+        result={result}
+        departments={departments}
+        scheduleId={detail.id}
+        configName={config?.name ?? "Schedule"}
+        version={detail.version}
+      />
     </div>
   );
 }
