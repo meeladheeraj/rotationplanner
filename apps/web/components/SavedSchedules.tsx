@@ -184,6 +184,12 @@ export function SavedSchedules({ configId, refreshKey }: { configId: string; ref
                   >
                     PDF
                   </a>
+                  <a
+                    href={`/api/schedules/${s.id}/xlsx`}
+                    className="rounded border border-gray-300 px-3 py-1 text-xs hover:bg-gray-100"
+                  >
+                    Excel
+                  </a>
                 </div>
               </td>
             </tr>

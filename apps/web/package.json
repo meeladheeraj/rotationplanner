@@ -12,8 +12,8 @@
     "e2e:http": "node scripts/run-e2e.mjs",
     "e2e:pw": "playwright test",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx scripts/migrate.ts",
-    "db:seed": "tsx scripts/seed.ts",
+    "db:migrate": "tsx --env-file-if-exists=.env.local scripts/migrate.ts",
+    "db:seed": "tsx --env-file-if-exists=.env.local scripts/seed.ts",
     "db:migrate:kit": "drizzle-kit migrate",
     "db:push": "drizzle-kit push"
   },
@@ -21,6 +21,7 @@
     "@react-pdf/renderer": "^4",
     "@rp/engine": "workspace:*",
     "drizzle-orm": "^0.36.4",
+    "exceljs": "^4.4.0",
     "next": "^15.1.3",
     "postgres": "^3.4.5",
     "react": "^19.0.0",
