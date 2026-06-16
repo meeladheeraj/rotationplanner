@@ -81,6 +81,12 @@ export function SavedSchedules({ configId, refreshKey }: { configId: string; ref
               <td className="py-2 pr-3 text-xs text-gray-500">min {s.stats.minCount}/dept/wk</td>
               <td className="py-2 text-right">
                 <div className="flex justify-end gap-2">
+                  <a
+                    href={`/schedules/${s.id}`}
+                    className="rounded border border-brand px-3 py-1 text-xs text-brand hover:bg-brand/5"
+                  >
+                    View
+                  </a>
                   {s.status === "draft" && (
                     <button
                       onClick={() => publish(s.id)}
