@@ -230,3 +230,77 @@ export function IconPdf({ className = "h-6 w-6" }: { className?: string }) {
     </svg>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/* Auth background scene — abstract schedule cards + linked interns.   */
+/* Decorative, multi-tone blue; meant to sit behind the auth card at   */
+/* low opacity. Self-coloured (does not use currentColor).             */
+/* ------------------------------------------------------------------ */
+
+export function AuthSceneBg({ className = "" }: { className?: string }) {
+  // A tilted "schedule card" with a header dot-row and a grid of cells,
+  // some filled to imply coverage. Reused at a few positions/scales.
+  const Card = ({ x, y, r, s = 1, o = 1 }: { x: number; y: number; r: number; s?: number; o?: number }) => {
+    const filled = new Set([1, 4, 5, 8, 11, 12, 15, 18]);
+    return (
+      <g transform={`translate(${x} ${y}) rotate(${r}) scale(${s})`} opacity={o}>
+        <rect x="0" y="0" width="150" height="104" rx="12" fill="#ffffff" stroke="#dbe4f5" strokeWidth="1.5" />
+        <rect x="0" y="0" width="150" height="22" rx="12" fill="#eef3fc" />
+        <circle cx="14" cy="11" r="3" fill="#c2d2ef" />
+        <circle cx="24" cy="11" r="3" fill="#c2d2ef" />
+        <circle cx="34" cy="11" r="3" fill="#c2d2ef" />
+        {Array.from({ length: 21 }).map((_, i) => {
+          const col = i % 7;
+          const row = Math.floor(i / 7);
+          return (
+            <rect
+              key={i}
+              x={12 + col * 19}
+              y={34 + row * 21}
+              width="14"
+              height="13"
+              rx="3"
+              fill={filled.has(i) ? "#3b82f6" : "#e4ebf7"}
+            />
+          );
+        })}
+      </g>
+    );
+  };
+
+  const Node = ({ cx, cy, r = 9 }: { cx: number; cy: number; r?: number }) => (
+    <g>
+      <circle cx={cx} cy={cy} r={r + 4} fill="#dbe7fb" />
+      <circle cx={cx} cy={cy} r={r} fill="#2563eb" />
+    </g>
+  );
+
+  const Check = ({ cx, cy, s = 1 }: { cx: number; cy: number; s?: number }) => (
+    <g transform={`translate(${cx} ${cy}) scale(${s})`}>
+      <circle cx="0" cy="0" r="15" fill="#ffffff" stroke="#cdddf6" strokeWidth="1.5" />
+      <path d="M-6 0 L-1.5 5 L7 -6" fill="none" stroke="#2563eb" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+    </g>
+  );
+
+  return (
+    <svg viewBox="0 0 760 720" className={className} fill="none" aria-hidden preserveAspectRatio="xMidYMid slice">
+      {/* dotted connectors between interns and cards */}
+      <path d="M250 250 C 360 300, 440 360, 560 330" stroke="#bcd0f2" strokeWidth="2.5" strokeDasharray="2 12" strokeLinecap="round" />
+      <path d="M250 470 C 360 470, 470 500, 600 520" stroke="#bcd0f2" strokeWidth="2.5" strokeDasharray="2 12" strokeLinecap="round" />
+      <path d="M250 250 C 230 340, 230 400, 250 470" stroke="#bcd0f2" strokeWidth="2.5" strokeDasharray="2 12" strokeLinecap="round" />
+
+      <Card x={430} y={70} r={-5} s={1.05} o={0.95} />
+      <Card x={540} y={300} r={6} o={0.9} />
+      <Card x={470} y={520} r={-7} s={1.1} o={0.95} />
+      <Card x={70} y={120} r={5} s={0.85} o={0.55} />
+
+      <Node cx={250} cy={250} r={11} />
+      <Node cx={250} cy={470} r={11} />
+      <Node cx={150} cy={360} r={8} />
+
+      <Check cx={690} cy={130} s={1.1} />
+      <Check cx={628} cy={560} />
+      <Check cx={210} cy={150} s={0.8} />
+    </svg>
+  );
+}

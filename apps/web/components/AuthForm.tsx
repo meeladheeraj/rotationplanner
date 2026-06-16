@@ -9,6 +9,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [tenantName, setTenantName] = useState("");
+  const [remember, setRemember] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -43,7 +44,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
             value={tenantName}
             onChange={(e) => setTenantName(e.target.value)}
             placeholder="My Hospital"
-            className="w-full rounded-md border border-gray-300 px-3 py-2 focus:border-brand focus:outline-none"
+            className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-slate-900 placeholder:text-slate-400 transition focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15"
           />
         </Field>
       )}
@@ -51,6 +52,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         <input
           type="email"
           required
+          placeholder="you@hospital.org"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           className="w-full rounded-md border border-gray-300 px-3 py-2 focus:border-brand focus:outline-none"
@@ -66,15 +68,35 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
           className="w-full rounded-md border border-gray-300 px-3 py-2 focus:border-brand focus:outline-none"
         />
       </Field>
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {mode === "login" && (
+        <div className="flex items-center justify-between">
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={(e) => setRemember(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand/30"
+            />
+            Remember me
+          </label>
+          <Link href="/login" className="text-sm font-medium text-brand hover:underline">
+            Forgot password?
+          </Link>
+        </div>
+      )}
+      {error && (
+        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+          {error}
+        </p>
+      )}
       <button
         type="submit"
         disabled={busy}
-        className="w-full rounded-md bg-brand px-4 py-2 font-medium text-white hover:bg-brand-fg disabled:opacity-50"
+        className="w-full rounded-lg bg-brand px-4 py-2.5 font-semibold text-white shadow-sm transition hover:bg-brand-fg focus:outline-none focus:ring-4 focus:ring-brand/25 disabled:opacity-50"
       >
         {busy ? "Please wait…" : mode === "login" ? "Log in" : "Create account"}
       </button>
-      <p className="text-center text-sm text-gray-500">
+      <p className="text-center text-sm text-slate-500">
         {mode === "login" ? (
           <>
             No account?{" "}
@@ -98,7 +120,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-sm font-medium text-gray-700">{label}</span>
+      <span className="mb-1.5 block text-sm font-medium text-slate-700">{label}</span>
       {children}
     </label>
   );
