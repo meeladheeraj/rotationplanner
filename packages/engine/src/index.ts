@@ -1,6 +1,6 @@
 export * from "./types.js";
 export { generate, schedToBlocks } from "./generate.js";
-export { validate } from "./validate.js";
+export { validate, validateStructure } from "./validate.js";
 export { mulberry32, shuffleArr } from "./rng.js";
 export { PRESETS, NMC_CRMI_2021, getPreset } from "./presets.js";
 export type { Preset } from "./presets.js";

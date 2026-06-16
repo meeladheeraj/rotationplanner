@@ -11,7 +11,7 @@ import { generate, getPreset, schedToBlocks } from "@rp/engine";
 import type { DB } from "@/db";
 import { schedules, tenants, users } from "@/db/schema";
 import { createConfig, type DataCtx } from "@/lib/data/configs";
-import { saveSchedule, type SubmittedAssignment } from "@/lib/data/schedules";
+import { publishSchedule, saveSchedule, type SubmittedAssignment } from "@/lib/data/schedules";
 import { HttpError } from "@/lib/tenant";
 
 import { makeTestDb } from "./testdb";
@@ -96,4 +96,42 @@ test("tampered schedule (broken contiguity) is rejected and not persisted", asyn
 
   const rows = await db.select().from(schedules).where(eq(schedules.configId, configId));
   assert.equal(rows.length, 0, "invalid roster must NOT be persisted");
+});
+
+test("below-minimum schedule saves as a DRAFT (violations surfaced) but cannot be published", async () => {
+  const { db: rawDb } = await makeTestDb();
+  const db = rawDb as unknown as DB;
+  const ctx = await seedCtx(db);
+
+  // Small, fully-feasible config but far too few interns to staff ≥2 everywhere.
+  const depts = [
+    { name: "A", weeks: 2, minCoverage: 2 },
+    { name: "B", weeks: 2, minCoverage: 2 },
+    { name: "C", weeks: 1, minCoverage: 2 },
+  ];
+  const deptNames = depts.map((d) => d.name);
+  const configId = await createConfig(ctx, { name: "Small", nInterns: 2, departments: depts });
+
+  const gen = generate({ n: 2, departments: depts, seed: 3 });
+  const submitted = toSubmitted(gen.internSchedules, deptNames);
+
+  // Structurally sound but understaffed → saved as a draft with violations returned.
+  const saved = await saveSchedule(ctx, configId, { assignments: submitted });
+  assert.equal(saved.status, "draft");
+  assert.ok(saved.violations.length > 0, "coverage shortfalls are surfaced on save");
+
+  // Persisted, and stats record the shortfall count.
+  const rows = await db.select().from(schedules).where(eq(schedules.id, saved.scheduleId));
+  assert.equal(rows.length, 1, "below-minimum draft IS persisted");
+  assert.equal(rows[0]!.stats.coverageViolations, saved.violations.length);
+
+  // Publish is refused (strict coverage enforced only at publish time).
+  await assert.rejects(
+    () => publishSchedule(ctx, saved.scheduleId),
+    (err: unknown) => err instanceof HttpError && err.status === 422,
+  );
+
+  // Still a draft after the refused publish.
+  const after = await db.select().from(schedules).where(eq(schedules.id, saved.scheduleId));
+  assert.equal(after[0]!.status, "draft", "refused publish must not change status");
 });

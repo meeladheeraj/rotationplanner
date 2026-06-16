@@ -50,6 +50,13 @@ export interface ScheduleStats {
    * this to the planner.
    */
   uncoverableCells: number;
+  /**
+   * Number of (week, dept) cells below their minCoverage in THIS roster. 0 means
+   * the schedule is fully staffed and publishable; > 0 means it can be saved as a
+   * draft but not published. Optional for backward-compatibility with rows
+   * persisted before this field existed.
+   */
+  coverageViolations?: number;
 }
 
 export interface GenerateResult {

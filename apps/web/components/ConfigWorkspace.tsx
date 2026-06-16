@@ -67,7 +67,15 @@ export function ConfigWorkspace(props: Props) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Save failed");
-      setSaveState(`Saved as version ${data.version} (server re-validated ✓)`);
+      const nViol = Array.isArray(data.violations) ? data.violations.length : 0;
+      if (nViol > 0) {
+        setSaveState(
+          `Saved as DRAFT v${data.version} — ${nViol} coverage shortfall${nViol === 1 ? "" : "s"} below minimum. ` +
+            `You can keep it as a draft, but it cannot be published until fully staffed (try more interns).`,
+        );
+      } else {
+        setSaveState(`Saved as version ${data.version} (server re-validated ✓, fully staffed — publishable)`);
+      }
       setSavedKey((k) => k + 1);
     } catch (e) {
       setSaveState(e instanceof Error ? e.message : "Save failed");

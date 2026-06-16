@@ -12,6 +12,7 @@ import {
   repairEdit,
   schedToBlocks,
   validate,
+  validateStructure,
   type Config as EngineConfig,
   type InternSchedule,
   type Violation,
@@ -112,8 +113,13 @@ export function assignmentsToInternSchedules(
 }
 
 /**
- * Re-validates a client-submitted schedule and, if valid, persists it as the
- * next version (status 'draft'). Throws 422 with violations if invalid.
+ * Re-validates a client-submitted schedule and persists it as the next version
+ * (status 'draft'). The server is authoritative on STRUCTURE — a roster that is
+ * structurally broken (bad contiguity / durations / week count) is corrupt data
+ * and is rejected (422), never persisted. A structurally-sound roster that merely
+ * falls below a department's minCoverage IS allowed to be saved as a draft: its
+ * coverage violations are surfaced (returned + recorded in stats) and the strict
+ * coverage rule is enforced only at PUBLISH time (see publishSchedule).
  */
 export async function saveSchedule(
   ctx: DataCtx,
@@ -130,13 +136,21 @@ export async function saveSchedule(
     deptCount,
   );
 
-  const result = validate(loaded.engineConfig, internSchedules);
-  if (!result.ok) {
-    throw new HttpError(422, JSON.stringify({ message: "Schedule failed validation", violations: result.violations }));
+  // Hard gate: structure must be sound. Coverage shortfalls are allowed as drafts.
+  const structure = validateStructure(loaded.engineConfig, internSchedules);
+  if (!structure.ok) {
+    throw new HttpError(
+      422,
+      JSON.stringify({ message: "Schedule is structurally invalid", violations: structure.violations }),
+    );
   }
 
-  // Derive trustworthy stats from the (validated) submission.
-  const stats = computeStats(loaded.engineConfig, internSchedules);
+  // Coverage violations (week/dept below minCoverage) are surfaced, not blocking.
+  const coverage = validate(loaded.engineConfig, internSchedules);
+  const coverageViolations = coverage.violations;
+
+  // Derive trustworthy stats from the (structurally-validated) submission.
+  const stats = computeStats(loaded.engineConfig, internSchedules, coverageViolations.length);
 
   return ctx.db.transaction(async (tx) => {
     const versionRows = await tx
@@ -178,11 +192,11 @@ export async function saveSchedule(
       metadata: { configId, version },
     });
 
-    return { scheduleId: sched.id, version, status: "draft" as const, violations: [] };
+    return { scheduleId: sched.id, version, status: "draft" as const, violations: coverageViolations };
   });
 }
 
-function computeStats(config: EngineConfig, internSchedules: InternSchedule[]) {
+function computeStats(config: EngineConfig, internSchedules: InternSchedule[], coverageViolations = 0) {
   const M = config.departments.length;
   const TW = config.departments.reduce((a, d) => a + d.weeks, 0);
   const count: number[][] = Array.from({ length: TW }, () => new Array<number>(M).fill(0));
@@ -215,6 +229,7 @@ function computeStats(config: EngineConfig, internSchedules: InternSchedule[]) {
     theoreticalMinN,
     candidateCount: internSchedules.length,
     uncoverableCells: 0,
+    coverageViolations,
   };
 }
 
@@ -307,6 +322,34 @@ export async function publishSchedule(
   ctx: DataCtx,
   scheduleId: string,
 ): Promise<{ id: string; version: number; status: ScheduleStatus }> {
+  // STRICT coverage is enforced at publish time: a published roster is immutable
+  // and distributed, so it must be fully staffed. Re-validate server-side from the
+  // persisted assignments (trust nothing that was stored before). This read +
+  // validation happens BEFORE the transaction so it doesn't query the same
+  // connection that has an open transaction.
+  const detail = await getScheduleDetail(ctx, scheduleId);
+  if (!detail) throw new HttpError(404, "Schedule not found");
+  if (detail.status === "published") {
+    throw new HttpError(409, "Schedule is already published and is immutable");
+  }
+  if (detail.status !== "draft") {
+    throw new HttpError(409, `Cannot publish a schedule with status '${detail.status}'`);
+  }
+  const loaded = await loadEngineConfig(ctx, detail.configId);
+  if (!loaded) throw new HttpError(404, "Config not found");
+  const internSchedules = detailToInternSchedules(detail.assignments, loaded.totalWeeks);
+  const result = validate(loaded.engineConfig, internSchedules);
+  if (!result.ok) {
+    throw new HttpError(
+      422,
+      JSON.stringify({
+        message:
+          "Cannot publish: schedule is below the required minimum coverage. Keep it as a draft, or regenerate with more interns.",
+        violations: result.violations,
+      }),
+    );
+  }
+
   return ctx.db.transaction(async (tx) => {
     const rows = await tx
       .select()

@@ -7,7 +7,23 @@ interface ScheduleSummary {
   version: number;
   status: "draft" | "published" | "archived";
   generatedAt: string;
-  stats: { minCount: number; maxCount: number; totalWeeks: number };
+  stats: { minCount: number; maxCount: number; totalWeeks: number; coverageViolations?: number };
+}
+
+/** Pull a human message out of an API error body, unwrapping the JSON-encoded
+ *  validation payload that publish/save use to carry violations. */
+function errorMessage(raw: unknown, fallback: string): string {
+  if (typeof raw !== "string") return fallback;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.message === "string") {
+      const n = Array.isArray(parsed.violations) ? parsed.violations.length : 0;
+      return n > 0 ? `${parsed.message} (${n} shortfall${n === 1 ? "" : "s"})` : parsed.message;
+    }
+  } catch {
+    /* not JSON — use the raw string */
+  }
+  return raw || fallback;
 }
 
 export function SavedSchedules({ configId, refreshKey }: { configId: string; refreshKey: number }) {
@@ -37,7 +53,7 @@ export function SavedSchedules({ configId, refreshKey }: { configId: string; ref
     try {
       const res = await fetch(`/api/schedules/${id}/publish`, { method: "POST" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Publish failed");
+      if (!res.ok) throw new Error(errorMessage(data.error, "Publish failed"));
       setNote(`Published v${data.version} — this roster is now immutable.`);
       await load();
     } catch (e) {
@@ -94,7 +110,14 @@ export function SavedSchedules({ configId, refreshKey }: { configId: string; ref
               <td className="py-2 pr-3">
                 <StatusPill status={s.status} />
               </td>
-              <td className="py-2 pr-3 text-xs text-gray-500">min {s.stats.minCount}/dept/wk</td>
+              <td className="py-2 pr-3 text-xs text-gray-500">
+                min {s.stats.minCount}/dept/wk
+                {(s.stats.coverageViolations ?? 0) > 0 && (
+                  <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700">
+                    below minimum · {s.stats.coverageViolations}
+                  </span>
+                )}
+              </td>
               <td className="py-2 text-right">
                 <div className="flex justify-end gap-2">
                   <a
