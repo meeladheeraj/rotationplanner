@@ -11,6 +11,7 @@ import {
   IconVersions,
   LogoMark,
 } from "@/components/Illustrations";
+import { getCurrentUser } from "@/lib/session";
 
 const features: { title: string; body: string; Icon: ComponentType<{ className?: string }> }[] = [
   {
@@ -63,25 +64,40 @@ const steps: { n: string; title: string; body: string }[] = [
   },
 ];
 
-export default function HomePage() {
+export default async function HomePage() {
+  const user = await getCurrentUser();
   return (
     <main className="text-gray-900">
       {/* Top bar */}
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-        <span className="inline-flex items-center gap-2 text-lg font-bold tracking-tight">
-          <LogoMark className="h-7 w-7 text-brand" />
+        <Link
+          href={user ? "/dashboard" : "/"}
+          className="inline-flex items-center gap-2 text-lg font-bold tracking-tight transition-opacity hover:opacity-90"
+        >
+          <LogoMark className="h-7 w-7" />
           RotationPlanner
-        </span>
+        </Link>
         <nav className="flex items-center gap-3 text-sm">
-          <Link href="/login" className="font-medium text-gray-600 hover:text-gray-900">
-            Log in
-          </Link>
-          <Link
-            href="/register"
-            className="rounded-md bg-brand px-4 py-2 font-medium text-white hover:bg-brand-fg"
-          >
-            Get started
-          </Link>
+          {user ? (
+            <Link
+              href="/dashboard"
+              className="rounded-md bg-brand px-4 py-2 font-medium text-white hover:bg-brand-fg"
+            >
+              Go to dashboard
+            </Link>
+          ) : (
+            <>
+              <Link href="/login" className="font-medium text-gray-600 hover:text-gray-900">
+                Log in
+              </Link>
+              <Link
+                href="/register"
+                className="rounded-md bg-brand px-4 py-2 font-medium text-white hover:bg-brand-fg"
+              >
+                Get started
+              </Link>
+            </>
+          )}
         </nav>
       </header>
 

@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { AuthSceneBg, LogoMark } from "@/components/Illustrations";
+import { getCurrentUser } from "@/lib/session";
 
 const BENEFITS: { title: string; body: string }[] = [
   {
@@ -31,7 +33,7 @@ function CheckBadge() {
  * Left: blue brand panel with the value prop (hidden below lg).
  * Right: tinted panel with a decorative schedule scene behind a floating card.
  */
-export function AuthLayout({
+export async function AuthLayout({
   heading,
   subheading,
   children,
@@ -40,6 +42,8 @@ export function AuthLayout({
   subheading: string;
   children: ReactNode;
 }) {
+  const user = await getCurrentUser();
+  const homeHref = user ? "/dashboard" : "/";
   return (
     <main className="flex min-h-screen">
       {/* Left — brand panel */}
@@ -52,10 +56,10 @@ export function AuthLayout({
             backgroundSize: "26px 26px",
           }}
         />
-        <div className="relative flex items-center gap-2.5">
+        <Link href={homeHref} className="relative flex items-center gap-2.5 transition-opacity hover:opacity-90">
           <LogoMark className="h-9 w-9" />
           <span className="text-xl font-bold tracking-tight">RotationPlanner</span>
-        </div>
+        </Link>
 
         <div className="relative max-w-md">
           <p className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-blue-100/90">
@@ -85,10 +89,10 @@ export function AuthLayout({
         <AuthSceneBg className="pointer-events-none absolute inset-0 h-full w-full opacity-70" />
 
         {/* mobile-only brand row (left panel is hidden < lg) */}
-        <div className="relative mb-8 flex items-center gap-2 lg:hidden">
+        <Link href={homeHref} className="relative mb-8 flex items-center gap-2 lg:hidden">
           <LogoMark className="h-8 w-8" />
           <span className="text-lg font-bold tracking-tight text-slate-900">RotationPlanner</span>
-        </div>
+        </Link>
 
         <div className="relative w-full max-w-md rounded-2xl bg-white p-8 shadow-xl shadow-slate-300/40 ring-1 ring-slate-200/70">
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">{heading}</h1>
