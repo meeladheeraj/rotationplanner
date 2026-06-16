@@ -1,29 +1,47 @@
 import Link from "next/link";
+import type { ComponentType } from "react";
 
-const features: { title: string; body: string }[] = [
+import {
+  HeroArt,
+  IconCoverage,
+  IconEngine,
+  IconPdf,
+  IconShare,
+  IconTenant,
+  IconVersions,
+  LogoMark,
+} from "@/components/Illustrations";
+
+const features: { title: string; body: string; Icon: ComponentType<{ className?: string }> }[] = [
   {
     title: "Proven scheduling engine",
     body: "A deterministic, dependency-free algorithm assigns every intern a contiguous, complete rotation across all departments — the same engine, re-run on the server, validates every roster before it is ever saved.",
+    Icon: IconEngine,
   },
   {
     title: "Per-department coverage rules",
     body: "Set a minimum number of interns required in each department every week. The engine respects elevated thresholds (e.g. a busy Casualty) and flags any week that cannot be staffed.",
+    Icon: IconCoverage,
   },
   {
     title: "Versioned & immutable rosters",
     body: "Every save is a new version. Publish a roster and it is frozen — no silent edits. Manual swaps are re-validated by the engine and recorded in an append-only audit log.",
+    Icon: IconVersions,
   },
   {
     title: "Multi-tenant by design",
     body: "Each organization's data is isolated at the data layer. Every query is tenant-scoped, so one hospital can never see another's configs or schedules.",
+    Icon: IconTenant,
   },
   {
     title: "Shareable, read-only links",
     body: "Publish a full roster or a single intern's rotation behind an unguessable link. Recipients see a clean, public view with no login and no access to anything else.",
+    Icon: IconShare,
   },
   {
     title: "Export to PDF",
     body: "Generate a printable, landscape roster for noticeboards and handovers — one line per intern, every rotation block laid out across the year.",
+    Icon: IconPdf,
   },
 ];
 
@@ -50,7 +68,10 @@ export default function HomePage() {
     <main className="text-gray-900">
       {/* Top bar */}
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-        <span className="text-lg font-bold tracking-tight">RotationPlanner</span>
+        <span className="inline-flex items-center gap-2 text-lg font-bold tracking-tight">
+          <LogoMark className="h-7 w-7 text-brand" />
+          RotationPlanner
+        </span>
         <nav className="flex items-center gap-3 text-sm">
           <Link href="/login" className="font-medium text-gray-600 hover:text-gray-900">
             Log in
@@ -66,33 +87,38 @@ export default function HomePage() {
 
       {/* Hero */}
       <section className="mx-auto max-w-6xl px-6 pb-16 pt-12 sm:pt-20">
-        <div className="max-w-3xl">
-          <p className="mb-4 inline-block rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-brand-fg">
-            For medical internship coordinators
-          </p>
-          <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
-            Intern rotation schedules that are{" "}
-            <span className="text-brand">valid, versioned, and shareable</span>.
-          </h1>
-          <p className="mt-5 text-lg leading-relaxed text-gray-600">
-            Generate a full year of intern rotations in seconds. Every roster is
-            re-validated on the server, versioned for an audit trail, and
-            shareable as a read-only link or PDF — across departments, with
-            strict per-organization isolation.
-          </p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Link
-              href="/register"
-              className="rounded-md bg-brand px-6 py-3 font-medium text-white hover:bg-brand-fg"
-            >
-              Create a free account
-            </Link>
-            <Link
-              href="/login"
-              className="rounded-md border border-gray-300 px-6 py-3 font-medium hover:bg-gray-100"
-            >
-              Log in
-            </Link>
+        <div className="grid items-center gap-10 lg:grid-cols-2">
+          <div className="max-w-3xl">
+            <p className="mb-4 inline-block rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-brand-fg">
+              For medical internship coordinators
+            </p>
+            <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
+              Intern rotation schedules that are{" "}
+              <span className="text-brand">valid, versioned, and shareable</span>.
+            </h1>
+            <p className="mt-5 text-lg leading-relaxed text-gray-600">
+              Generate a full year of intern rotations in seconds. Every roster is
+              re-validated on the server, versioned for an audit trail, and
+              shareable as a read-only link or PDF — across departments, with
+              strict per-organization isolation.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Link
+                href="/register"
+                className="rounded-md bg-brand px-6 py-3 font-medium text-white hover:bg-brand-fg"
+              >
+                Create a free account
+              </Link>
+              <Link
+                href="/login"
+                className="rounded-md border border-gray-300 px-6 py-3 font-medium hover:bg-gray-100"
+              >
+                Log in
+              </Link>
+            </div>
+          </div>
+          <div className="hidden justify-center lg:flex">
+            <HeroArt className="w-full max-w-md text-brand" />
           </div>
         </div>
       </section>
@@ -126,7 +152,10 @@ export default function HomePage() {
               key={f.title}
               className="rounded-lg border border-gray-200 bg-white p-6"
             >
-              <h3 className="font-semibold">{f.title}</h3>
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-brand">
+                <f.Icon className="h-6 w-6" />
+              </div>
+              <h3 className="mt-4 font-semibold">{f.title}</h3>
               <p className="mt-2 text-sm leading-relaxed text-gray-600">{f.body}</p>
             </div>
           ))}
@@ -154,7 +183,8 @@ export default function HomePage() {
         </div>
       </section>
 
-      <footer className="mx-auto max-w-6xl px-6 py-10 text-sm text-gray-500">
+      <footer className="mx-auto flex max-w-6xl items-center gap-2 px-6 py-10 text-sm text-gray-500">
+        <LogoMark className="h-5 w-5 text-gray-400" />
         RotationPlanner — multi-tenant intern rotation scheduling.
       </footer>
     </main>
