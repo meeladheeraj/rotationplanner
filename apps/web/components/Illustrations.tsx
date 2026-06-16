@@ -22,25 +22,51 @@ function svgProps({ title, ...rest }: IconProps) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Brand mark — a calendar grid with a rotation arc.                   */
+/* Brand mark — a path traced through a 3×3 grid of interns.           */
+/* Self-contained two-tone tile (blue field, white nodes + path).      */
 /* ------------------------------------------------------------------ */
 
-export function LogoMark({ className = "h-7 w-7 text-brand", ...props }: IconProps) {
+export function LogoMark({ className = "h-7 w-7", ...props }: IconProps) {
+  // 3×3 grid centres; the three "active" nodes are linked into a path.
+  const cols = [18, 32, 46];
+  const rows = [18, 32, 46];
+  const active = new Set(["46,18", "18,32", "32,46"]); // TR → ML → BM
   return (
-    <svg viewBox="0 0 32 32" fill="none" className={className} {...svgProps(props)}>
+    <svg viewBox="0 0 64 64" fill="none" className={className} {...svgProps(props)}>
       {props.title && <title>{props.title}</title>}
-      <rect x="3" y="5" width="26" height="23" rx="5" stroke="currentColor" strokeWidth="2" />
-      <path d="M3 11h26" stroke="currentColor" strokeWidth="2" />
-      <path d="M10 3v5M22 3v5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      {/* rotation arc + arrowhead inside the grid */}
+      <defs>
+        <linearGradient id="rpLogoGrad" x1="14" y1="8" x2="56" y2="60" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#3b82f6" />
+          <stop offset="0.55" stopColor="#2563eb" />
+          <stop offset="1" stopColor="#1d4ed8" />
+        </linearGradient>
+      </defs>
+      <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#rpLogoGrad)" />
+      {/* connecting path, tucked under the active nodes */}
       <path
-        d="M11 22a5 5 0 1 0 1.6-3.7"
-        stroke="currentColor"
-        strokeWidth="2"
+        d="M46 18 L18 32 L32 46"
+        stroke="#ffffff"
+        strokeWidth="2.6"
         strokeLinecap="round"
+        strokeLinejoin="round"
         opacity="0.9"
+        fill="none"
       />
-      <path d="M11 14.5V18.5H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      {rows.map((cy) =>
+        cols.map((cx) => {
+          const on = active.has(`${cx},${cy}`);
+          return (
+            <circle
+              key={`${cx}-${cy}`}
+              cx={cx}
+              cy={cy}
+              r={on ? 6 : 5}
+              fill="#ffffff"
+              opacity={on ? 1 : 0.32}
+            />
+          );
+        }),
+      )}
     </svg>
   );
 }
