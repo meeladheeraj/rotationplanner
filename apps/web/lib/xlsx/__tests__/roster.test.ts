@@ -45,12 +45,16 @@ test("renderRosterXlsx produces a valid multi-sheet workbook", async () => {
   await wb.xlsx.load(buf as unknown as ArrayBuffer);
   assert.deepEqual(
     wb.worksheets.map((w) => w.name),
-    ["Summary", "Roster", "Coverage"],
+    ["Summary", "Roster", "By Department", "Coverage"],
   );
 
   const roster = wb.getWorksheet("Roster")!;
   // header + 4 (intern,block) rows.
   assert.equal(roster.rowCount, 5);
+
+  const byDept = wb.getWorksheet("By Department")!;
+  // header + 4 (dept,block) rows — every assignment block appears once.
+  assert.equal(byDept.rowCount, 5);
 
   const coverage = wb.getWorksheet("Coverage")!;
   // header + 2 department rows.

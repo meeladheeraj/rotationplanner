@@ -123,6 +123,44 @@ function buildCoverageSheet(wb: ExcelJS.Workbook, input: RosterXlsxInput): void 
   });
 }
 
+/** Department-centric pivot: per department, which interns are assigned and when. */
+function buildByDepartmentSheet(wb: ExcelJS.Workbook, input: RosterXlsxInput): void {
+  const ws = wb.addWorksheet("By Department", { views: [{ state: "frozen", ySplit: 1 }] });
+  ws.columns = [
+    { header: "Department", key: "dept", width: 24 },
+    { header: "Intern", key: "intern", width: 14 },
+    { header: "Start Week", key: "start", width: 12 },
+    { header: "End Week", key: "end", width: 12 },
+    { header: "Duration (weeks)", key: "duration", width: 16 },
+  ];
+  styleHeaderRow(ws.getRow(1));
+
+  // Group assignment blocks by department index, then sort by start week / intern.
+  const M = input.departments.length;
+  const groups: { internLabel: string; deptName: string; start: number; end: number }[][] =
+    Array.from({ length: M }, () => []);
+  for (const a of input.assignments) {
+    for (const b of a.rotation) {
+      if (b.dept >= 0 && b.dept < M) {
+        groups[b.dept]!.push({ internLabel: a.internLabel, deptName: b.deptName, start: b.start, end: b.end });
+      }
+    }
+  }
+  input.departments.forEach((d, di) => {
+    const list = groups[di]!.slice().sort((x, y) => x.start - y.start || x.internLabel.localeCompare(y.internLabel));
+    for (const g of list) {
+      ws.addRow({
+        dept: d.name,
+        intern: g.internLabel,
+        start: g.start + 1,
+        end: g.end + 1,
+        duration: g.end - g.start + 1,
+      });
+    }
+  });
+  ws.autoFilter = { from: "A1", to: "E1" };
+}
+
 function buildSummarySheet(wb: ExcelJS.Workbook, input: RosterXlsxInput): void {
   const ws = wb.addWorksheet("Summary");
   ws.columns = [
@@ -151,6 +189,7 @@ export async function renderRosterXlsx(input: RosterXlsxInput): Promise<Buffer> 
   wb.created = new Date(input.generatedAt);
   buildSummarySheet(wb, input);
   buildRosterSheet(wb, input);
+  buildByDepartmentSheet(wb, input);
   buildCoverageSheet(wb, input);
   const arr = await wb.xlsx.writeBuffer();
   return Buffer.from(arr as ArrayBuffer);
