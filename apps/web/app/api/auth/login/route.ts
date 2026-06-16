@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   const password = asString(b.password) ?? "";
 
   // Rate-limit by email to blunt credential stuffing.
-  if (!checkRateLimit(`login:${email}`, 10, 60_000)) {
+  if (!(await checkRateLimit(`login:${email}`, 10, 60_000))) {
     return NextResponse.json(
       { error: "Too many attempts. Try again shortly." },
       { status: 429 },

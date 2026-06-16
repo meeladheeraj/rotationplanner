@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { reportError } from "@/lib/observability";
 import { HttpError } from "@/lib/tenant";
 
 /** Wraps a route handler, converting thrown HttpError into JSON responses. */
@@ -13,7 +14,8 @@ export function handle<A extends unknown[]>(
       if (err instanceof HttpError) {
         return NextResponse.json({ error: err.message }, { status: err.status });
       }
-      console.error("Unhandled route error:", err);
+      // Fire-and-forget: capture to Sentry (if configured) + server logs.
+      void reportError(err, { kind: "unhandled_route_error" });
       return NextResponse.json({ error: "Internal server error" }, { status: 500 });
     }
   };
