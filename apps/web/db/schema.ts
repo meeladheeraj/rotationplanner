@@ -231,6 +231,28 @@ export const auditLog = pgTable(
   }),
 );
 
+export type FeedbackCategory = "bug" | "idea" | "other";
+
+// User-submitted product feedback. Tenant-scoped; userId is kept for context
+// but set null if the user is later removed (feedback is still useful).
+export const feedback = pgTable(
+  "feedback",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    category: text("category").$type<FeedbackCategory>().notNull().default("other"),
+    rating: integer("rating"),
+    message: text("message").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantIdx: index("feedback_tenant_idx").on(t.tenantId),
+  }),
+);
+
 // ---------------------------------------------------------------------------
 // Relations (for typed `db.query.*` access)
 // ---------------------------------------------------------------------------
@@ -248,6 +270,11 @@ export const usersRelations = relations(users, ({ one, many }) => ({
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({
   user: one(users, { fields: [sessions.userId], references: [users.id] }),
+}));
+
+export const feedbackRelations = relations(feedback, ({ one }) => ({
+  tenant: one(tenants, { fields: [feedback.tenantId], references: [tenants.id] }),
+  user: one(users, { fields: [feedback.userId], references: [users.id] }),
 }));
 
 export const configsRelations = relations(configs, ({ one, many }) => ({

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { getCurrentUser } from "@/lib/session";
 import { LogoutButton } from "@/components/LogoutButton";
+import { FeedbackButton } from "@/components/FeedbackButton";
 import { LogoMark } from "@/components/Illustrations";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -17,8 +18,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <LogoMark className="h-6 w-6 text-brand" />
             RotationPlanner
           </Link>
-          <div className="flex items-center gap-4 text-sm text-gray-600">
+          <div className="flex items-center gap-3 text-sm text-gray-600">
             <span className="hidden sm:inline">{user.email}</span>
+            <FeedbackButton />
             <LogoutButton />
           </div>
         </div>
