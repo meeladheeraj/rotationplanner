@@ -1,9 +1,10 @@
 import Link from "next/link";
-import type { Department, GenerateResult, InternSchedule } from "@rp/engine";
+import type { Department } from "@rp/engine";
 
 import { getConfig } from "@/lib/data/configs";
 import { getScheduleDetail } from "@/lib/data/schedules";
 import { requireTenant } from "@/lib/tenant";
+import { reconstructResult } from "@/lib/schedule/reconstruct";
 import { ScheduleViews } from "@/components/ScheduleViews";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +42,7 @@ export default async function ScheduleViewPage({
     minCoverage: d.minCoverage,
   }));
 
-  const result = reconstructResult(detail, departments, detail.stats);
+  const result = reconstructResult(detail.assignments, departments, detail.stats);
 
   return (
     <div>
@@ -78,38 +79,6 @@ export default async function ScheduleViewPage({
       <ScheduleViews result={result} departments={departments} />
     </div>
   );
-}
-
-/** Rebuild an engine GenerateResult from persisted assignment blocks + stats. */
-function reconstructResult(
-  detail: { assignments: { internIndex: number; rotation: { dept: number; start: number; end: number }[] }[] },
-  departments: Department[],
-  stats: GenerateResult["stats"],
-): GenerateResult {
-  const totalWeeks = stats.totalWeeks;
-  const deptCount = departments.length;
-
-  const internSchedules: InternSchedule[] = detail.assignments.map((a) => {
-    const schedule = new Array<number>(totalWeeks).fill(-1);
-    for (const blk of a.rotation) {
-      for (let w = blk.start; w <= blk.end && w < totalWeeks; w++) {
-        if (w >= 0) schedule[w] = blk.dept;
-      }
-    }
-    return { id: a.internIndex, schedule };
-  });
-
-  const weekDeptCount: number[][] = Array.from({ length: totalWeeks }, () =>
-    new Array<number>(deptCount).fill(0),
-  );
-  for (const { schedule } of internSchedules) {
-    for (let w = 0; w < totalWeeks; w++) {
-      const d = schedule[w];
-      if (d !== undefined && d >= 0 && d < deptCount) weekDeptCount[w]![d]! += 1;
-    }
-  }
-
-  return { internSchedules, weekDeptCount, stats };
 }
 
 function StatusPill({ status }: { status: string }) {

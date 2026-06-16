@@ -22,6 +22,7 @@ import {
   type ScheduleStatus,
   type ShareScope,
 } from "@/db/schema";
+import type { ScheduleStats } from "@rp/engine";
 import { writeAudit } from "@/lib/audit";
 import { HttpError } from "@/lib/tenant";
 import type { DataCtx } from "@/lib/data/configs";
@@ -93,7 +94,9 @@ export interface PublicScheduleView {
   version: number;
   status: ScheduleStatus;
   generatedAt: Date;
-  departments: { name: string; weeks: number }[];
+  /** Persisted engine stats — used to render the heatmap intensity (maxCount). */
+  stats: ScheduleStats;
+  departments: { name: string; weeks: number; minCoverage: number }[];
   assignments: {
     internIndex: number;
     internLabel: string;
@@ -161,7 +164,12 @@ export async function getSharedSchedule(
     version: sched.version,
     status: sched.status,
     generatedAt: sched.generatedAt,
-    departments: deptRows.map((d) => ({ name: d.name, weeks: d.weeks })),
+    stats: sched.stats,
+    departments: deptRows.map((d) => ({
+      name: d.name,
+      weeks: d.weeks,
+      minCoverage: d.minCoverage,
+    })),
     assignments: aRows.map((a) => ({
       internIndex: a.internIndex,
       internLabel: a.internLabel,

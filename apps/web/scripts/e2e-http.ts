@@ -124,7 +124,16 @@ async function main() {
   const pubPage = await cookieless(`/s/${fullToken}`);
   const pubHtml = await pubPage.text();
   ok(pubPage.status === 200, `cookieless /s/[token] → 200 (got ${pubPage.status})`);
-  ok(/Full roster/.test(pubHtml) && /Intern\s*\d+/.test(pubHtml), "public page shows the full roster");
+  // FEEDBACK #6: the share page now renders ALL views (timeline/heatmap/cards/by-department),
+  // read-only, via the in-app ScheduleViews component — not just a bare roster table.
+  ok(
+    /Full roster/.test(pubHtml) &&
+      /Timeline/.test(pubHtml) &&
+      /Heatmap/.test(pubHtml) &&
+      /By department/.test(pubHtml) &&
+      /General Surgery/.test(pubHtml),
+    "public page shows the full roster across all views (timeline/heatmap/cards/by-department)",
+  );
 
   // 8. Share — per-intern, open cookieless, expect a single intern
   const sharePer = await authed(`/api/schedules/${scheduleId}/share`, {

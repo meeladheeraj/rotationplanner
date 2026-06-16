@@ -118,6 +118,10 @@ test("full flow: swap → publish → immutability → share (full + per-intern)
   assert.equal(fullView.assignments.length, 135);
   assert.equal(fullView.scope, "full");
   assert.equal(fullView.status, "published");
+  // FEEDBACK #6: stats + per-dept minCoverage are carried on the shared view so the
+  // public page can render the full ScheduleViews (heatmap intensity + below-min flags).
+  assert.ok(fullView.stats.totalWeeks > 0);
+  assert.ok(fullView.departments.every((d) => typeof d.minCoverage === "number"));
 
   // --- share: per-intern link exposes exactly one intern ---
   const per = await createShareLink(ctx, scheduleId, { scope: "per_intern", internLabel: "Intern 5" });
