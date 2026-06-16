@@ -6,7 +6,31 @@ import { schedToBlocks, type Department, type GenerateResult } from "@rp/engine"
 import { deptColor } from "@/lib/client/palette";
 
 const PAGE_SIZE = 30;
-type Tab = "timeline" | "heatmap" | "cards";
+type Tab = "timeline" | "heatmap" | "cards" | "departments";
+
+interface DeptAssignment {
+  internId: number;
+  start: number;
+  end: number;
+}
+
+/** Pivot the intern-centric roster into a department-centric view:
+ *  for each department, which interns are assigned and during which weeks. */
+function byDepartment(
+  internSchedules: GenerateResult["internSchedules"],
+  deptCount: number,
+): DeptAssignment[][] {
+  const out: DeptAssignment[][] = Array.from({ length: deptCount }, () => []);
+  for (const { id, schedule } of internSchedules) {
+    for (const b of schedToBlocks(schedule)) {
+      if (b.dept >= 0 && b.dept < deptCount) {
+        out[b.dept]!.push({ internId: id, start: b.start, end: b.end });
+      }
+    }
+  }
+  for (const list of out) list.sort((a, b) => a.start - b.start || a.internId - b.internId);
+  return out;
+}
 
 export function ScheduleViews({
   result,
@@ -30,10 +54,15 @@ export function ScheduleViews({
   const safePage = Math.min(page, totalPages - 1);
   const paged = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
 
+  const deptGroups = useMemo(
+    () => byDepartment(result.internSchedules, departments.length),
+    [result.internSchedules, departments.length],
+  );
+
   return (
     <div>
       <div className="mb-5 flex gap-1 border-b border-gray-200">
-        {([["timeline", "Timeline"], ["heatmap", "Heatmap"], ["cards", "Intern cards"]] as const).map(
+        {([["timeline", "Timeline"], ["heatmap", "Heatmap"], ["cards", "Intern cards"], ["departments", "By department"]] as const).map(
           ([k, label]) => (
             <button
               key={k}
@@ -203,6 +232,44 @@ export function ScheduleViews({
                     ))}
                   </tbody>
                 </table>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {tab === "departments" && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {departments.map((d, di) => {
+            const group = deptGroups[di] ?? [];
+            const minCov = d.minCoverage ?? 2;
+            return (
+              <div key={di} className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+                <div className="flex items-center justify-between px-4 py-2.5 text-white" style={{ background: deptColor(di) }}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold">{d.name}</span>
+                    <span className="text-[11px] opacity-80">{d.weeks}w · min {minCov}/wk</span>
+                  </div>
+                  <span className="font-mono text-xs opacity-80">{group.length} assignments</span>
+                </div>
+                {group.length === 0 ? (
+                  <p className="px-4 py-3 text-xs text-gray-400">No interns assigned.</p>
+                ) : (
+                  <table className="w-full border-collapse">
+                    <tbody>
+                      {group.map((g, gi) => (
+                        <tr key={gi} className="border-b border-gray-100 last:border-0">
+                          <td className="py-1.5 pl-4 font-mono text-xs font-medium">S{g.internId}</td>
+                          <td className="py-1.5 pr-4 text-right font-mono text-[11px] text-gray-400">
+                            W{g.start + 1}
+                            {g.start !== g.end ? `–${g.end + 1}` : ""}
+                            <span className="ml-1 text-gray-300">({g.end - g.start + 1}w)</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
             );
           })}
