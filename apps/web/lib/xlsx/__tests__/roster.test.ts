@@ -69,3 +69,39 @@ test("renderRosterXlsx produces a valid multi-sheet workbook", async () => {
   // Week 3 row (row 6): Intern 2 rotates into Medicine.
   assert.equal(medicine.getRow(6).getCell(3).value, "Intern 2");
 });
+
+test("renderRosterXlsx substitutes ephemeral student names when provided", async () => {
+  const buf = await renderRosterXlsx({
+    configName: "Demo Roster",
+    totalWeeks: 4,
+    version: 1,
+    status: "draft",
+    generatedAt: new Date("2026-06-16"),
+    departments: [
+      { name: "Medicine", weeks: 2, minCoverage: 2 },
+      { name: "Surgery", weeks: 2, minCoverage: 2 },
+    ],
+    assignments: [
+      {
+        internIndex: 1,
+        internLabel: "Intern 1",
+        rotation: [{ dept: 0, deptName: "Medicine", start: 0, end: 1 }],
+      },
+      {
+        internIndex: 2,
+        internLabel: "Intern 2",
+        rotation: [{ dept: 0, deptName: "Medicine", start: 2, end: 3 }],
+      },
+    ],
+    nameByIndex: { 1: "Asha Rao", 2: "Bilal Khan" },
+  });
+
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf as unknown as ArrayBuffer);
+  const roster = wb.getWorksheet("Roster")!;
+  // Names replace "Intern N" in the roster sheet's first column.
+  assert.equal(roster.getRow(2).getCell(1).value, "Asha Rao");
+  // And in the per-department sheet's student lists.
+  const medicine = wb.getWorksheet("Medicine")!;
+  assert.equal(medicine.getRow(4).getCell(3).value, "Asha Rao");
+});

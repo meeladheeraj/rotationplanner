@@ -21,6 +21,12 @@ export interface RosterPdfInput {
   status: string;
   generatedAt: Date;
   assignments: ScheduleDetail["assignments"];
+  /**
+   * FEEDBACK #8 — optional EPHEMERAL student-name mapping (intern index → name).
+   * When present, intern labels are replaced by real names for this render only;
+   * nothing is persisted. Absent ⇒ anonymous "Intern N" labels (default).
+   */
+  nameByIndex?: Record<number, string>;
 }
 
 interface DeptGroupEntry {
@@ -127,6 +133,19 @@ function RosterDoc({ input }: { input: RosterPdfInput }) {
   );
 }
 
+/** Apply an ephemeral name map (if any) by overriding each intern's display label. */
+function withNames(input: RosterPdfInput): RosterPdfInput {
+  const map = input.nameByIndex;
+  if (!map) return input;
+  return {
+    ...input,
+    assignments: input.assignments.map((a) => ({
+      ...a,
+      internLabel: map[a.internIndex] ?? a.internLabel,
+    })),
+  };
+}
+
 export async function renderRosterPdf(input: RosterPdfInput): Promise<Buffer> {
-  return renderToBuffer(<RosterDoc input={input} />);
+  return renderToBuffer(<RosterDoc input={withNames(input)} />);
 }

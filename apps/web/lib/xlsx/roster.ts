@@ -25,6 +25,12 @@ export interface RosterXlsxInput {
   generatedAt: Date;
   assignments: ScheduleDetail["assignments"];
   departments: RosterXlsxDepartment[];
+  /**
+   * FEEDBACK #8 — optional EPHEMERAL student-name mapping (intern index → name).
+   * When present, intern labels are replaced by real names for this render only;
+   * nothing is persisted. Absent ⇒ anonymous "Intern N" labels (default).
+   */
+  nameByIndex?: Record<number, string>;
 }
 
 const HEADER_FILL: ExcelJS.Fill = {
@@ -216,7 +222,21 @@ function buildSummarySheet(wb: ExcelJS.Workbook, input: RosterXlsxInput): void {
   }
 }
 
-export async function renderRosterXlsx(input: RosterXlsxInput): Promise<Buffer> {
+/** Apply an ephemeral name map (if any) by overriding each intern's display label. */
+function withNames(input: RosterXlsxInput): RosterXlsxInput {
+  const map = input.nameByIndex;
+  if (!map) return input;
+  return {
+    ...input,
+    assignments: input.assignments.map((a) => ({
+      ...a,
+      internLabel: map[a.internIndex] ?? a.internLabel,
+    })),
+  };
+}
+
+export async function renderRosterXlsx(rawInput: RosterXlsxInput): Promise<Buffer> {
+  const input = withNames(rawInput);
   const wb = new ExcelJS.Workbook();
   wb.creator = "RotationPlanner";
   wb.created = new Date(input.generatedAt);
