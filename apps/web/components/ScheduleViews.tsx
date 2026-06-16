@@ -8,28 +8,20 @@ import { deptColor } from "@/lib/client/palette";
 const PAGE_SIZE = 30;
 type Tab = "timeline" | "heatmap" | "cards" | "departments";
 
-interface DeptAssignment {
-  internId: number;
-  start: number;
-  end: number;
-}
-
-/** Pivot the intern-centric roster into a department-centric view:
- *  for each department, which interns are assigned and during which weeks. */
-function byDepartment(
+/** For one department, the list of intern IDs present in each week of the year. */
+function deptWeeklyStudents(
   internSchedules: GenerateResult["internSchedules"],
-  deptCount: number,
-): DeptAssignment[][] {
-  const out: DeptAssignment[][] = Array.from({ length: deptCount }, () => []);
+  deptIndex: number,
+  totalWeeks: number,
+): number[][] {
+  const weeks: number[][] = Array.from({ length: totalWeeks }, () => []);
   for (const { id, schedule } of internSchedules) {
-    for (const b of schedToBlocks(schedule)) {
-      if (b.dept >= 0 && b.dept < deptCount) {
-        out[b.dept]!.push({ internId: id, start: b.start, end: b.end });
-      }
+    for (let w = 0; w < totalWeeks; w++) {
+      if (schedule[w] === deptIndex) weeks[w]!.push(id);
     }
   }
-  for (const list of out) list.sort((a, b) => a.start - b.start || a.internId - b.internId);
-  return out;
+  for (const list of weeks) list.sort((a, b) => a - b);
+  return weeks;
 }
 
 export function ScheduleViews({
@@ -42,6 +34,7 @@ export function ScheduleViews({
   const [tab, setTab] = useState<Tab>("timeline");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
+  const [selectedDept, setSelectedDept] = useState(0);
   const totalWeeks = result.stats.totalWeeks;
 
   const filtered = useMemo(() => {
@@ -54,10 +47,20 @@ export function ScheduleViews({
   const safePage = Math.min(page, totalPages - 1);
   const paged = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
 
-  const deptGroups = useMemo(
-    () => byDepartment(result.internSchedules, departments.length),
-    [result.internSchedules, departments.length],
+  const safeDept = Math.min(selectedDept, Math.max(0, departments.length - 1));
+  const deptWeekly = useMemo(
+    () => deptWeeklyStudents(result.internSchedules, safeDept, totalWeeks),
+    [result.internSchedules, safeDept, totalWeeks],
   );
+  const deptStats = useMemo(() => {
+    const counts = deptWeekly.map((s) => s.length);
+    const staffed = counts.filter((c) => c > 0);
+    const min = staffed.length ? Math.min(...staffed) : 0;
+    const max = counts.length ? Math.max(...counts) : 0;
+    const minCov = departments[safeDept]?.minCoverage ?? 2;
+    const belowWeeks = counts.filter((c) => c < minCov).length;
+    return { min, max, minCov, belowWeeks };
+  }, [deptWeekly, departments, safeDept]);
 
   return (
     <div>
@@ -239,40 +242,83 @@ export function ScheduleViews({
       )}
 
       {tab === "departments" && (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {departments.map((d, di) => {
-            const group = deptGroups[di] ?? [];
-            const minCov = d.minCoverage ?? 2;
-            return (
-              <div key={di} className="overflow-hidden rounded-lg border border-gray-200 bg-white">
-                <div className="flex items-center justify-between px-4 py-2.5 text-white" style={{ background: deptColor(di) }}>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold">{d.name}</span>
-                    <span className="text-[11px] opacity-80">{d.weeks}w · min {minCov}/wk</span>
-                  </div>
-                  <span className="font-mono text-xs opacity-80">{group.length} assignments</span>
-                </div>
-                {group.length === 0 ? (
-                  <p className="px-4 py-3 text-xs text-gray-400">No interns assigned.</p>
-                ) : (
-                  <table className="w-full border-collapse">
-                    <tbody>
-                      {group.map((g, gi) => (
-                        <tr key={gi} className="border-b border-gray-100 last:border-0">
-                          <td className="py-1.5 pl-4 font-mono text-xs font-medium">S{g.internId}</td>
-                          <td className="py-1.5 pr-4 text-right font-mono text-[11px] text-gray-400">
-                            W{g.start + 1}
-                            {g.start !== g.end ? `–${g.end + 1}` : ""}
-                            <span className="ml-1 text-gray-300">({g.end - g.start + 1}w)</span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            );
-          })}
+        <div>
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <label className="text-sm font-medium text-gray-600">Department</label>
+            <select
+              value={safeDept}
+              onChange={(e) => setSelectedDept(Number(e.target.value))}
+              className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm focus:border-brand focus:outline-none"
+            >
+              {departments.map((d, di) => (
+                <option key={di} value={di}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+            <span className="inline-flex items-center gap-1.5 text-xs text-gray-500">
+              <span className="h-3 w-3 rounded-sm" style={{ background: deptColor(safeDept) }} />
+              {departments[safeDept]?.weeks}-week block · minimum {deptStats.minCov}/week
+            </span>
+          </div>
+
+          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Stat label="Weeks staffed" value={`${deptWeekly.filter((s) => s.length > 0).length}/${totalWeeks}`} />
+            <Stat label="Min in a week" value={String(deptStats.min)} />
+            <Stat label="Max in a week" value={String(deptStats.max)} />
+            <Stat
+              label="Weeks below min"
+              value={String(deptStats.belowWeeks)}
+              tone={deptStats.belowWeeks > 0 ? "bad" : "ok"}
+            />
+          </div>
+
+          <div className="overflow-hidden rounded-lg border border-gray-200">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="bg-gray-50 text-left text-[11px] uppercase tracking-wide text-gray-400">
+                  <th className="w-16 px-3 py-2">Week</th>
+                  <th className="w-20 px-3 py-2 text-center">Count</th>
+                  <th className="px-3 py-2">Students</th>
+                </tr>
+              </thead>
+              <tbody>
+                {deptWeekly.map((students, w) => {
+                  const below = students.length < deptStats.minCov;
+                  return (
+                    <tr key={w} className="border-t border-gray-100 align-top">
+                      <td className="px-3 py-2 font-mono text-xs text-gray-500">W{w + 1}</td>
+                      <td className="px-3 py-2 text-center">
+                        <span
+                          className={`inline-block min-w-[1.75rem] rounded-full px-2 py-0.5 text-xs font-semibold ${
+                            below ? "bg-red-100 text-red-700" : "bg-blue-50 text-blue-700"
+                          }`}
+                        >
+                          {students.length}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        {students.length === 0 ? (
+                          <span className="text-xs text-gray-300">—</span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1">
+                            {students.map((id) => (
+                              <span
+                                key={id}
+                                className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[11px] text-gray-600"
+                              >
+                                S{id}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -297,6 +343,21 @@ export function ScheduleViews({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function Stat({ label, value, tone }: { label: string; value: string; tone?: "ok" | "bad" }) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2">
+      <div className="text-[10px] uppercase tracking-wide text-gray-400">{label}</div>
+      <div
+        className={`text-lg font-bold ${
+          tone === "bad" ? "text-red-600" : tone === "ok" ? "text-emerald-600" : "text-gray-800"
+        }`}
+      >
+        {value}
+      </div>
     </div>
   );
 }

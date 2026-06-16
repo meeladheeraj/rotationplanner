@@ -123,42 +123,75 @@ function buildCoverageSheet(wb: ExcelJS.Workbook, input: RosterXlsxInput): void 
   });
 }
 
-/** Department-centric pivot: per department, which interns are assigned and when. */
-function buildByDepartmentSheet(wb: ExcelJS.Workbook, input: RosterXlsxInput): void {
-  const ws = wb.addWorksheet("By Department", { views: [{ state: "frozen", ySplit: 1 }] });
-  ws.columns = [
-    { header: "Department", key: "dept", width: 24 },
-    { header: "Intern", key: "intern", width: 14 },
-    { header: "Start Week", key: "start", width: 12 },
-    { header: "End Week", key: "end", width: 12 },
-    { header: "Duration (weeks)", key: "duration", width: 16 },
-  ];
-  styleHeaderRow(ws.getRow(1));
-
-  // Group assignment blocks by department index, then sort by start week / intern.
-  const M = input.departments.length;
-  const groups: { internLabel: string; deptName: string; start: number; end: number }[][] =
-    Array.from({ length: M }, () => []);
+/** For one department index, the intern labels present in each week of the year. */
+function deptWeeklyStudents(input: RosterXlsxInput, deptIndex: number): string[][] {
+  const TW = input.totalWeeks;
+  const weeks: string[][] = Array.from({ length: TW }, () => []);
   for (const a of input.assignments) {
     for (const b of a.rotation) {
-      if (b.dept >= 0 && b.dept < M) {
-        groups[b.dept]!.push({ internLabel: a.internLabel, deptName: b.deptName, start: b.start, end: b.end });
+      if (b.dept !== deptIndex) continue;
+      for (let w = b.start; w <= b.end; w++) {
+        if (w >= 0 && w < TW) weeks[w]!.push(a.internLabel);
       }
     }
   }
+  for (const list of weeks) list.sort((x, y) => x.localeCompare(y, undefined, { numeric: true }));
+  return weeks;
+}
+
+/** Excel sheet names: max 31 chars, none of \ / ? * [ ] :, must be unique. */
+function uniqueSheetName(raw: string, used: Set<string>): string {
+  const base = (raw.replace(/[\\/?*[\]:]/g, " ").trim() || "Dept").slice(0, 28);
+  let candidate = base;
+  let i = 2;
+  while (used.has(candidate.toLowerCase())) {
+    candidate = `${base.slice(0, 25)} ${i++}`;
+  }
+  used.add(candidate.toLowerCase());
+  return candidate;
+}
+
+/** One worksheet PER department: a week-by-week breakdown of who is staffed and
+ *  the count, with below-minimum weeks flagged. */
+function buildDepartmentSheets(wb: ExcelJS.Workbook, input: RosterXlsxInput): void {
+  const used = new Set<string>(wb.worksheets.map((w) => w.name.toLowerCase()));
+  const TW = input.totalWeeks;
+
   input.departments.forEach((d, di) => {
-    const list = groups[di]!.slice().sort((x, y) => x.start - y.start || x.internLabel.localeCompare(y.internLabel));
-    for (const g of list) {
-      ws.addRow({
-        dept: d.name,
-        intern: g.internLabel,
-        start: g.start + 1,
-        end: g.end + 1,
-        duration: g.end - g.start + 1,
-      });
+    const ws = wb.addWorksheet(uniqueSheetName(d.name, used), {
+      views: [{ state: "frozen", ySplit: 3 }],
+    });
+    ws.getColumn(1).width = 8;
+    ws.getColumn(2).width = 12;
+    ws.getColumn(3).width = 90;
+
+    ws.mergeCells("A1:C1");
+    const title = ws.getCell("A1");
+    title.value = d.name;
+    title.font = { bold: true, size: 14, color: { argb: "FF1E293B" } };
+
+    ws.mergeCells("A2:C2");
+    const meta = ws.getCell("A2");
+    meta.value = `Block length ${d.weeks} week(s) · minimum ${d.minCoverage} student(s)/week`;
+    meta.font = { size: 9, color: { argb: "FF64748B" } };
+
+    const header = ws.getRow(3);
+    header.values = ["Week", "# Students", "Students"];
+    styleHeaderRow(header);
+
+    const weekly = deptWeeklyStudents(input, di);
+    for (let w = 0; w < TW; w++) {
+      const students = weekly[w]!;
+      const row = ws.addRow([w + 1, students.length, students.join(", ")]);
+      row.getCell(1).alignment = { horizontal: "center" };
+      const cnt = row.getCell(2);
+      cnt.alignment = { horizontal: "center" };
+      if (students.length < d.minCoverage) {
+        cnt.fill = BELOW_MIN_FILL;
+        cnt.font = { color: { argb: "FFB91C1C" }, bold: true };
+      }
     }
   });
-  ws.autoFilter = { from: "A1", to: "E1" };
 }
 
 function buildSummarySheet(wb: ExcelJS.Workbook, input: RosterXlsxInput): void {
@@ -189,8 +222,8 @@ export async function renderRosterXlsx(input: RosterXlsxInput): Promise<Buffer> 
   wb.created = new Date(input.generatedAt);
   buildSummarySheet(wb, input);
   buildRosterSheet(wb, input);
-  buildByDepartmentSheet(wb, input);
   buildCoverageSheet(wb, input);
+  buildDepartmentSheets(wb, input);
   const arr = await wb.xlsx.writeBuffer();
   return Buffer.from(arr as ArrayBuffer);
 }

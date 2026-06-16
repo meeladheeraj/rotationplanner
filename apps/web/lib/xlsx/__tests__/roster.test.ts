@@ -45,16 +45,12 @@ test("renderRosterXlsx produces a valid multi-sheet workbook", async () => {
   await wb.xlsx.load(buf as unknown as ArrayBuffer);
   assert.deepEqual(
     wb.worksheets.map((w) => w.name),
-    ["Summary", "Roster", "By Department", "Coverage"],
+    ["Summary", "Roster", "Coverage", "Medicine", "Surgery"],
   );
 
   const roster = wb.getWorksheet("Roster")!;
   // header + 4 (intern,block) rows.
   assert.equal(roster.rowCount, 5);
-
-  const byDept = wb.getWorksheet("By Department")!;
-  // header + 4 (dept,block) rows — every assignment block appears once.
-  assert.equal(byDept.rowCount, 5);
 
   const coverage = wb.getWorksheet("Coverage")!;
   // header + 2 department rows.
@@ -62,4 +58,14 @@ test("renderRosterXlsx produces a valid multi-sheet workbook", async () => {
   // Medicine wk1 (col C) has 1 intern but min is 2 → below minimum.
   const medWk1 = coverage.getRow(2).getCell(3);
   assert.equal(medWk1.value, 1);
+
+  // Per-department sheet: title (1) + meta (2) + header (3) + 4 week rows = 7.
+  const medicine = wb.getWorksheet("Medicine")!;
+  assert.equal(medicine.rowCount, 7);
+  // Week 1 row (row 4): only Intern 1 is in Medicine → count 1, students "Intern 1".
+  assert.equal(medicine.getRow(4).getCell(1).value, 1);
+  assert.equal(medicine.getRow(4).getCell(2).value, 1);
+  assert.equal(medicine.getRow(4).getCell(3).value, "Intern 1");
+  // Week 3 row (row 6): Intern 2 rotates into Medicine.
+  assert.equal(medicine.getRow(6).getCell(3).value, "Intern 2");
 });
