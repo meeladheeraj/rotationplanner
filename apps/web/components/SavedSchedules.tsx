@@ -14,6 +14,10 @@ export function SavedSchedules({ configId, refreshKey }: { configId: string; ref
   const [items, setItems] = useState<ScheduleSummary[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  // Share URL created per schedule id, so the dedicated copy-URL button can re-copy it.
+  const [shareUrls, setShareUrls] = useState<Record<string, string>>({});
+  // Schedule id whose URL was just copied (drives the transient "Copied!" confirmation).
+  const [copied, setCopied] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/configs/${configId}/schedules`);
@@ -55,13 +59,25 @@ export function SavedSchedules({ configId, refreshKey }: { configId: string; ref
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Share failed");
       const url = `${window.location.origin}/s/${data.token}`;
-      await navigator.clipboard?.writeText(url).catch(() => {});
-      setNote(`Share link (copied): ${url}`);
+      setShareUrls((prev) => ({ ...prev, [id]: url }));
+      await copyUrl(id, url);
+      setNote(`Share link ready: ${url}`);
     } catch (e) {
       setNote(e instanceof Error ? e.message : "Share failed");
     } finally {
       setBusy(null);
     }
+  }
+
+  async function copyUrl(id: string, url: string) {
+    try {
+      await navigator.clipboard?.writeText(url);
+    } catch {
+      // Clipboard may be unavailable (insecure context / permissions); the URL stays
+      // visible in the note so the user can copy it manually.
+    }
+    setCopied(id);
+    window.setTimeout(() => setCopied((c) => (c === id ? null : c)), 1800);
   }
 
   if (items.length === 0) return null;
@@ -103,6 +119,27 @@ export function SavedSchedules({ configId, refreshKey }: { configId: string; ref
                   >
                     Share link
                   </button>
+                  {shareUrls[s.id] && (
+                    <button
+                      type="button"
+                      onClick={() => copyUrl(s.id, shareUrls[s.id]!)}
+                      title="Copy share URL"
+                      aria-label="Copy share URL"
+                      className="inline-flex items-center gap-1 rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-100"
+                    >
+                      {copied === s.id ? (
+                        <>
+                          <CheckIcon />
+                          <span className="text-emerald-700">Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <CopyIcon />
+                          <span className="sr-only">Copy URL</span>
+                        </>
+                      )}
+                    </button>
+                  )}
                   <a
                     href={`/api/schedules/${s.id}/pdf`}
                     className="rounded border border-gray-300 px-3 py-1 text-xs hover:bg-gray-100"
@@ -116,6 +153,23 @@ export function SavedSchedules({ configId, refreshKey }: { configId: string; ref
         </tbody>
       </table>
     </section>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-700" aria-hidden="true">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
   );
 }
 
