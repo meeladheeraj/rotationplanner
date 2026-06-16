@@ -51,7 +51,7 @@ export function ConfigWorkspace(props: Props) {
     setSaveState("Saving…");
     const assignments = result.internSchedules.map((is) => ({
       internIndex: is.id,
-      internLabel: `Intern ${is.id + 1}`,
+      internLabel: `Intern ${is.id}`,
       rotation: schedToBlocks(is.schedule).map((b) => ({
         dept: b.dept,
         deptName: departments[b.dept]?.name ?? "",

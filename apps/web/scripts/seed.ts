@@ -122,7 +122,7 @@ export async function seedDemo(db: DB, opts: SeedOptions = {}): Promise<SeedResu
   const result = generate(engineConfig);
   const assignments = result.internSchedules.map((is) => ({
     internIndex: is.id,
-    internLabel: `Intern ${is.id + 1}`,
+    internLabel: `Intern ${is.id}`,
     rotation: schedToBlocks(is.schedule).map((b) => ({
       dept: b.dept,
       deptName: engineConfig.departments[b.dept]?.name ?? "",

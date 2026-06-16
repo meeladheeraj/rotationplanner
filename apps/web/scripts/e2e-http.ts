@@ -83,7 +83,7 @@ async function main() {
 
   const assignments = result.internSchedules.map((is) => ({
     internIndex: is.id,
-    internLabel: `Intern ${is.id + 1}`,
+    internLabel: `Intern ${is.id}`,
     rotation: schedToBlocks(is.schedule).map((b) => ({
       dept: b.dept,
       deptName: config.departments[b.dept]?.name ?? "",
@@ -130,7 +130,7 @@ async function main() {
   const sharePer = await authed(`/api/schedules/${scheduleId}/share`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ scope: "per_intern", internLabel: "Intern 2" }),
+    body: JSON.stringify({ scope: "per_intern", internLabel: "Intern 1" }),
   });
   ok(sharePer.status === 201, `create per-intern share link → 201 (got ${sharePer.status})`);
   const { token: perToken } = (await sharePer.json()) as { token: string };

@@ -30,7 +30,7 @@ async function seedCtx(db: DB): Promise<DataCtx> {
 function toSubmitted(internSchedules: { id: number; schedule: number[] }[], deptNames: string[]): SubmittedAssignment[] {
   return internSchedules.map((is) => ({
     internIndex: is.id,
-    internLabel: `Intern ${is.id + 1}`,
+    internLabel: `Intern ${is.id}`,
     rotation: schedToBlocks(is.schedule).map((b) => ({
       dept: b.dept,
       deptName: deptNames[b.dept] ?? "",

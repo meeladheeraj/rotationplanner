@@ -26,7 +26,7 @@ function parseAssignments(raw: unknown): SubmittedAssignment[] {
   return raw.map((a, i) => {
     const o = a as Record<string, unknown>;
     const internIndex = Number(o.internIndex);
-    const internLabel = typeof o.internLabel === "string" ? o.internLabel : `Intern ${i + 1}`;
+    const internLabel = typeof o.internLabel === "string" ? o.internLabel : `Intern ${internIndex}`;
     if (!Number.isInteger(internIndex) || internIndex < 0) {
       throw new HttpError(400, `assignment ${i} has an invalid internIndex`);
     }
