@@ -31,6 +31,9 @@ export function ConfigWorkspace(props: Props) {
   const [nameBusy, setNameBusy] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
 
+  const [configSaving, setConfigSaving] = useState(false);
+  const [configMsg, setConfigMsg] = useState<string | null>(null);
+
   async function renameConfig() {
     const next = nameDraft.trim();
     if (!next || next === name) {
@@ -64,6 +67,7 @@ export function ConfigWorkspace(props: Props) {
   const totalWeeks = departments.reduce((a, d) => a + d.weeks, 0);
 
   function updateDept(i: number, field: keyof Department, value: string) {
+    setConfigMsg(null);
     setDepartments((prev) =>
       prev.map((d, idx) => {
         if (idx !== i) return d;
@@ -72,6 +76,49 @@ export function ConfigWorkspace(props: Props) {
         return { ...d, name: value };
       }),
     );
+  }
+
+  function addDept() {
+    setDepartments((prev) => [...prev, { name: "New department", weeks: 1, minCoverage: 2 }]);
+    setConfigMsg(null);
+  }
+
+  function removeDept(i: number) {
+    setDepartments((prev) => (prev.length <= 1 ? prev : prev.filter((_, idx) => idx !== i)));
+    setConfigMsg(null);
+  }
+
+  async function saveConfig() {
+    if (departments.some((d) => !d.name.trim())) {
+      setConfigMsg("Every department needs a name");
+      return;
+    }
+    setConfigSaving(true);
+    setConfigMsg(null);
+    try {
+      const res = await fetch(`/api/configs/${props.configId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          nInterns,
+          departments: departments.map((d) => ({
+            name: d.name.trim(),
+            weeks: d.weeks,
+            minCoverage: d.minCoverage ?? 2,
+          })),
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error ?? "Save failed");
+      }
+      setConfigMsg("Structure saved ✓");
+      router.refresh();
+    } catch (e) {
+      setConfigMsg(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setConfigSaving(false);
+    }
   }
 
   function runGenerate() {
@@ -211,6 +258,7 @@ export function ConfigWorkspace(props: Props) {
                 <th className="py-1 pr-3">Department</th>
                 <th className="py-1 pr-3">Weeks</th>
                 <th className="py-1 pr-3">Min coverage</th>
+                <th className="py-1 pr-3 sr-only">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -241,10 +289,60 @@ export function ConfigWorkspace(props: Props) {
                       className="w-20 rounded border border-gray-200 px-2 py-1 font-mono"
                     />
                   </td>
+                  <td className="py-1 pr-1 text-right">
+                    <button
+                      type="button"
+                      onClick={() => removeDept(i)}
+                      disabled={departments.length <= 1}
+                      aria-label={`Remove ${d.name || "department"}`}
+                      title={departments.length <= 1 ? "At least one department is required" : "Remove department"}
+                      className="rounded-md p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400"
+                    >
+                      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M10 11v6M14 11v6" strokeLinecap="round" />
+                      </svg>
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-gray-100 pt-4">
+          <button
+            type="button"
+            onClick={addDept}
+            className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-gray-300 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:border-brand hover:text-brand"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+            </svg>
+            Add department
+          </button>
+
+          <span className="text-sm text-gray-400">
+            {departments.length} departments · {totalWeeks} weeks total
+          </span>
+
+          <div className="ml-auto flex items-center gap-3">
+            {configMsg && (
+              <span
+                className={`text-sm ${configMsg.endsWith("✓") ? "text-green-600" : "text-red-600"}`}
+              >
+                {configMsg}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={saveConfig}
+              disabled={configSaving}
+              className="rounded-md border border-gray-300 px-4 py-1.5 text-sm font-medium text-slate-700 transition hover:border-brand hover:text-brand disabled:opacity-50"
+            >
+              {configSaving ? "Saving…" : "Save changes"}
+            </button>
+          </div>
         </div>
       </section>
 
