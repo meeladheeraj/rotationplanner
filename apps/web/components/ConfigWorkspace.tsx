@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { schedToBlocks, type Config, type Department } from "@rp/engine";
 
 import { useScheduler } from "@/lib/client/useScheduler";
@@ -17,11 +18,48 @@ interface Props {
 }
 
 export function ConfigWorkspace(props: Props) {
+  const router = useRouter();
   const [nInterns, setNInterns] = useState(props.nInterns);
   const [departments, setDepartments] = useState<Department[]>(props.departments);
   const { generating, result, error, generate } = useScheduler();
   const [saveState, setSaveState] = useState<string | null>(null);
   const [savedKey, setSavedKey] = useState(0);
+
+  const [name, setName] = useState(props.name);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(props.name);
+  const [nameBusy, setNameBusy] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
+
+  async function renameConfig() {
+    const next = nameDraft.trim();
+    if (!next || next === name) {
+      setEditingName(false);
+      setNameDraft(name);
+      setNameError(null);
+      return;
+    }
+    setNameBusy(true);
+    setNameError(null);
+    try {
+      const res = await fetch(`/api/configs/${props.configId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: next }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error ?? "Rename failed");
+      }
+      setName(next);
+      setEditingName(false);
+      router.refresh();
+    } catch (e) {
+      setNameError(e instanceof Error ? e.message : "Rename failed");
+    } finally {
+      setNameBusy(false);
+    }
+  }
 
   const totalWeeks = departments.reduce((a, d) => a + d.weeks, 0);
 
@@ -84,7 +122,63 @@ export function ConfigWorkspace(props: Props) {
 
   return (
     <div className="mt-2">
-      <h1 className="text-2xl font-bold">{props.name}</h1>
+      {editingName ? (
+        <div>
+          <div className="flex items-center gap-2">
+            <input
+              autoFocus
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") renameConfig();
+                if (e.key === "Escape") {
+                  setEditingName(false);
+                  setNameDraft(name);
+                  setNameError(null);
+                }
+              }}
+              className="w-full max-w-md rounded-md border border-slate-300 px-3 py-1.5 text-2xl font-bold text-slate-900 focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15"
+            />
+            <button
+              onClick={renameConfig}
+              disabled={nameBusy}
+              className="rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-fg disabled:opacity-50"
+            >
+              {nameBusy ? "Saving…" : "Save"}
+            </button>
+            <button
+              onClick={() => {
+                setEditingName(false);
+                setNameDraft(name);
+                setNameError(null);
+              }}
+              disabled={nameBusy}
+              className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+          {nameError && <p className="mt-1 text-sm text-red-600">{nameError}</p>}
+        </div>
+      ) : (
+        <div className="group flex items-center gap-2">
+          <h1 className="text-2xl font-bold">{name}</h1>
+          <button
+            onClick={() => {
+              setNameDraft(name);
+              setEditingName(true);
+            }}
+            aria-label="Rename schedule"
+            title="Rename"
+            className="rounded-md p-1.5 text-slate-400 opacity-0 transition hover:bg-slate-100 hover:text-brand focus:opacity-100 group-hover:opacity-100"
+          >
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 20h9" strokeLinecap="round" />
+              <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       <section className="mt-4 rounded-lg border border-gray-200 bg-white p-5">
         <div className="mb-4 flex items-end gap-4">

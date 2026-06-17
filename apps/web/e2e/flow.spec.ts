@@ -24,8 +24,10 @@ test("register → config → generate → save → publish → share (cookieles
   await page.getByRole("button", { name: "Create account" }).click();
   await page.waitForURL("**/dashboard");
 
-  // Create a config from the NMC preset → lands on the config workspace
-  await page.getByRole("button", { name: "New from NMC preset" }).click();
+  // Create a named schedule from the NMC preset → lands on the config workspace
+  await page.getByRole("button", { name: "New schedule" }).click();
+  await page.getByLabel("Schedule name").fill("E2E Test Roster");
+  await page.getByRole("button", { name: "Create schedule" }).click();
   await page.waitForURL("**/configs/**");
 
   // Generate (Web Worker) then save (server re-validates)
