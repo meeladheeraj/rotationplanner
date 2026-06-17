@@ -10,3 +10,6 @@ dist/
 # pnpm temp artifacts left by failed in-mount installs (mount forbids unlink)
 _tmp_*
 .pnpm-store/
+
+# Personal / non-code working notes (not committed)
+personal/

@@ -14,10 +14,14 @@ export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   if (process.env.E2E_PGLITE !== "1") return;
 
-  const { readFileSync, readdirSync } = await import("node:fs");
-  const { join } = await import("node:path");
-  const { PGlite } = await import("@electric-sql/pglite");
-  const { drizzle } = await import("drizzle-orm/pglite");
+  // webpackIgnore: these node-only / dev-only modules must NOT be bundled. Next
+  // compiles instrumentation for every runtime (incl. edge), and webpack would
+  // otherwise fail on `node:fs`. They only ever execute in the nodejs runtime
+  // under E2E_PGLITE, so leave them as native runtime imports.
+  const { readFileSync, readdirSync } = await import(/* webpackIgnore: true */ "node:fs");
+  const { join } = await import(/* webpackIgnore: true */ "node:path");
+  const { PGlite } = await import(/* webpackIgnore: true */ "@electric-sql/pglite");
+  const { drizzle } = await import(/* webpackIgnore: true */ "drizzle-orm/pglite");
 
   const { schema, setDb } = await import("@/db");
   type DB = import("@/db").DB;
