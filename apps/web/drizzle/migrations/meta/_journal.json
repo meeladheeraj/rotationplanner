@@ -15,6 +15,13 @@
       "when": 1781634936040,
       "tag": "0001_add_feedback",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781779927812,
+      "tag": "0002_add_leave_events",
+      "breakpoints": true
     }
   ]
 }

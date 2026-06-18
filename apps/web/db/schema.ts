@@ -253,6 +253,34 @@ export const feedback = pgTable(
   }),
 );
 
+// Intern leave & resume (FEEDBACK #9). Each row records a leave applied to a
+// source schedule version, which produced a new (result) schedule version.
+export const leaveEvents = pgTable(
+  "leave_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    sourceScheduleId: uuid("source_schedule_id")
+      .notNull()
+      .references(() => schedules.id, { onDelete: "cascade" }),
+    resultScheduleId: uuid("result_schedule_id")
+      .notNull()
+      .references(() => schedules.id, { onDelete: "cascade" }),
+    internIndex: integer("intern_index").notNull(),
+    startWeek: integer("start_week").notNull(),
+    leaveWeeks: integer("leave_weeks").notNull(),
+    resumedDept: integer("resumed_dept"),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantIdx: index("leave_events_tenant_idx").on(t.tenantId),
+    resultIdx: index("leave_events_result_idx").on(t.resultScheduleId),
+  }),
+);
+
 // ---------------------------------------------------------------------------
 // Relations (for typed `db.query.*` access)
 // ---------------------------------------------------------------------------

@@ -8,13 +8,17 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 
 import {
+  applyLeave,
   proposeSwap,
   repairEdit,
+  revalidateCoverage,
   schedToBlocks,
   validate,
   validateStructure,
   type Config as EngineConfig,
   type InternSchedule,
+  type LeaveResult,
+  type ScheduleStats,
   type Violation,
 } from "@rp/engine";
 
@@ -23,6 +27,7 @@ import {
   assignments,
   configs,
   departments,
+  leaveEvents,
   manualEdits,
   schedules,
   type AssignmentBlock,
@@ -490,4 +495,164 @@ function blocksFor(
     start: b.start,
     end: b.end,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Intern leave & resume (FEEDBACK #9) — produces a NEW draft version
+// ---------------------------------------------------------------------------
+
+export interface ApplyLeaveResult {
+  scheduleId: string;
+  version: number;
+  status: ScheduleStatus;
+  totalWeeks: number;
+  resumedDept: number | null;
+  violations: Violation[];
+}
+
+/** Coverage-only stats for a (variable-length) leave-adjusted roster. */
+function leaveStats(
+  config: EngineConfig,
+  result: LeaveResult,
+  coverageViolations: number,
+): ScheduleStats {
+  const M = config.departments.length;
+  const TW = result.totalWeeks;
+  let minCount = Infinity;
+  let maxCount = 0;
+  for (let w = 0; w < TW; w++)
+    for (let d = 0; d < M; d++) {
+      const c = result.weekDeptCount[w]?.[d] ?? 0;
+      if (c < minCount) minCount = c;
+      if (c > maxCount) maxCount = c;
+    }
+  let theoreticalMinN = 0;
+  for (const d of config.departments)
+    theoreticalMinN = Math.max(theoreticalMinN, Math.ceil(((d.minCoverage ?? 2) * TW) / d.weeks));
+  return {
+    totalWeeks: TW,
+    minCount: minCount === Infinity ? 0 : minCount,
+    maxCount,
+    theoreticalMinN,
+    candidateCount: result.internSchedules.length,
+    uncoverableCells: 0,
+    coverageViolations,
+  };
+}
+
+/**
+ * Apply an intern leave to a saved schedule and persist the result as a NEW
+ * DRAFT version (the source version is untouched — this fits the immutable
+ * versioning model). The engine restarts the in-progress department, keeps
+ * completed ones, and extends the timeline; we re-validate coverage only (the
+ * fixed-length / each-dept-once structural rule no longer applies after a
+ * leave). Writes a leave_events row + audit entry in the same transaction.
+ */
+export async function applyLeaveToSchedule(
+  ctx: DataCtx,
+  sourceScheduleId: string,
+  internIndex: number,
+  startWeek: number,
+  leaveWeeks: number,
+): Promise<ApplyLeaveResult> {
+  if (!Number.isInteger(leaveWeeks) || leaveWeeks < 1) {
+    throw new HttpError(400, "leaveWeeks must be a positive integer");
+  }
+  if (!Number.isInteger(startWeek) || startWeek < 0) {
+    throw new HttpError(400, "startWeek must be a non-negative integer");
+  }
+
+  const detail = await getScheduleDetail(ctx, sourceScheduleId);
+  if (!detail) throw new HttpError(404, "Schedule not found");
+  const loaded = await loadEngineConfig(ctx, detail.configId);
+  if (!loaded) throw new HttpError(404, "Config not found");
+
+  // This version's effective length (already-extended if a prior leave applied).
+  const effectiveWeeks = detail.stats.totalWeeks || loaded.totalWeeks;
+  if (startWeek > effectiveWeeks) {
+    throw new HttpError(400, `startWeek ${startWeek} is beyond the schedule (${effectiveWeeks} weeks)`);
+  }
+  const internSchedules = detailToInternSchedules(detail.assignments, effectiveWeeks);
+  if (!internSchedules.some((s) => s.id === internIndex)) {
+    throw new HttpError(400, `Intern ${internIndex} is not part of this schedule`);
+  }
+
+  let result: LeaveResult;
+  try {
+    result = applyLeave(internSchedules, loaded.engineConfig.departments, internIndex, startWeek, leaveWeeks);
+  } catch (e) {
+    throw new HttpError(400, e instanceof Error ? e.message : "Could not apply leave");
+  }
+
+  const deptNames = loaded.engineConfig.departments.map((d) => d.name);
+  const coverage = revalidateCoverage(loaded.engineConfig.departments, result.internSchedules);
+  const stats = leaveStats(loaded.engineConfig, result, coverage.length);
+
+  const labelByIndex = new Map(detail.assignments.map((a) => [a.internIndex, a.internLabel]));
+  const newAssignments = result.internSchedules.map((s) => ({
+    internIndex: s.id,
+    internLabel: labelByIndex.get(s.id) ?? `Intern ${s.id}`,
+    // Drop LEAVE (dept < 0) weeks — they persist as the absence of a block.
+    rotation: blocksFor(result.internSchedules, s.id, deptNames).filter((b) => b.dept >= 0),
+  }));
+
+  return ctx.db.transaction(async (tx) => {
+    const versionRows = await tx
+      .select({ next: sql<number>`coalesce(max(${schedules.version}), 0) + 1` })
+      .from(schedules)
+      .where(eq(schedules.configId, detail.configId));
+    const version = Number(versionRows[0]?.next ?? 1);
+
+    const [sched] = await tx
+      .insert(schedules)
+      .values({
+        tenantId: ctx.tenantId,
+        configId: detail.configId,
+        version,
+        status: "draft",
+        generatedBy: ctx.userId ?? null,
+        engineVersion: ENGINE_VERSION,
+        stats,
+      })
+      .returning({ id: schedules.id });
+    if (!sched) throw new Error("Failed to create schedule version");
+
+    if (newAssignments.length > 0) {
+      await tx.insert(assignments).values(
+        newAssignments.map((a) => ({
+          scheduleId: sched.id,
+          internIndex: a.internIndex,
+          internLabel: a.internLabel,
+          rotation: a.rotation,
+        })),
+      );
+    }
+    await tx.insert(leaveEvents).values({
+      tenantId: ctx.tenantId,
+      sourceScheduleId,
+      resultScheduleId: sched.id,
+      internIndex,
+      startWeek,
+      leaveWeeks,
+      resumedDept: result.resumedDept,
+      createdBy: ctx.userId ?? null,
+    });
+    await writeAudit(tx, {
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      action: "leave_applied",
+      entityType: "schedule",
+      entityId: sched.id,
+      metadata: { sourceScheduleId, internIndex, startWeek, leaveWeeks, version },
+    });
+
+    return {
+      scheduleId: sched.id,
+      version,
+      status: "draft" as const,
+      totalWeeks: result.totalWeeks,
+      resumedDept: result.resumedDept,
+      violations: coverage,
+    };
+  });
 }
