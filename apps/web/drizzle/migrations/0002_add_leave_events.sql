@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS "leave_events" (
 	"start_week" integer NOT NULL,
 	"leave_weeks" integer NOT NULL,
 	"resumed_dept" integer,
+	"carry_over" jsonb,
 	"created_by" uuid,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );

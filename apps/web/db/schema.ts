@@ -272,6 +272,8 @@ export const leaveEvents = pgTable(
     startWeek: integer("start_week").notNull(),
     leaveWeeks: integer("leave_weeks").notNull(),
     resumedDept: integer("resumed_dept"),
+    // Departments the intern could not finish this year — carry to next batch.
+    carryOver: jsonb("carry_over").$type<number[]>(),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

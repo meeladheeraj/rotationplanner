@@ -507,17 +507,19 @@ export interface ApplyLeaveResult {
   status: ScheduleStatus;
   totalWeeks: number;
   resumedDept: number | null;
+  /** Departments the intern could not finish this year — carry to the next batch. */
+  carryOver: number[];
   violations: Violation[];
 }
 
-/** Coverage-only stats for a (variable-length) leave-adjusted roster. */
+/** Coverage-only stats for a leave-adjusted roster (same fixed year length). */
 function leaveStats(
   config: EngineConfig,
   result: LeaveResult,
   coverageViolations: number,
 ): ScheduleStats {
   const M = config.departments.length;
-  const TW = result.totalWeeks;
+  const TW = result.yearWeeks;
   let minCount = Infinity;
   let maxCount = 0;
   for (let w = 0; w < TW; w++)
@@ -543,10 +545,11 @@ function leaveStats(
 /**
  * Apply an intern leave to a saved schedule and persist the result as a NEW
  * DRAFT version (the source version is untouched — this fits the immutable
- * versioning model). The engine restarts the in-progress department, keeps
- * completed ones, and extends the timeline; we re-validate coverage only (the
- * fixed-length / each-dept-once structural rule no longer applies after a
- * leave). Writes a leave_events row + audit entry in the same transaction.
+ * versioning model). The year is HARD-CAPPED at the config length: the engine
+ * keeps completed departments, restarts the in-progress one, fits what fits
+ * before year-end, and returns any departments that don't fit as CARRY-OVER for
+ * the next batch. Re-validation is coverage-only. Writes a leave_events row
+ * (with the carry-over) + an audit entry in the same transaction.
  */
 export async function applyLeaveToSchedule(
   ctx: DataCtx,
@@ -567,19 +570,26 @@ export async function applyLeaveToSchedule(
   const loaded = await loadEngineConfig(ctx, detail.configId);
   if (!loaded) throw new HttpError(404, "Config not found");
 
-  // This version's effective length (already-extended if a prior leave applied).
-  const effectiveWeeks = detail.stats.totalWeeks || loaded.totalWeeks;
-  if (startWeek > effectiveWeeks) {
-    throw new HttpError(400, `startWeek ${startWeek} is beyond the schedule (${effectiveWeeks} weeks)`);
+  // The year is fixed at the config length — leaves never extend it.
+  const yearWeeks = loaded.totalWeeks;
+  if (startWeek > yearWeeks) {
+    throw new HttpError(400, `startWeek ${startWeek} is beyond the ${yearWeeks}-week year`);
   }
-  const internSchedules = detailToInternSchedules(detail.assignments, effectiveWeeks);
+  const internSchedules = detailToInternSchedules(detail.assignments, yearWeeks);
   if (!internSchedules.some((s) => s.id === internIndex)) {
     throw new HttpError(400, `Intern ${internIndex} is not part of this schedule`);
   }
 
   let result: LeaveResult;
   try {
-    result = applyLeave(internSchedules, loaded.engineConfig.departments, internIndex, startWeek, leaveWeeks);
+    result = applyLeave(
+      internSchedules,
+      loaded.engineConfig.departments,
+      internIndex,
+      startWeek,
+      leaveWeeks,
+      yearWeeks,
+    );
   } catch (e) {
     throw new HttpError(400, e instanceof Error ? e.message : "Could not apply leave");
   }
@@ -635,6 +645,7 @@ export async function applyLeaveToSchedule(
       startWeek,
       leaveWeeks,
       resumedDept: result.resumedDept,
+      carryOver: result.carryOver,
       createdBy: ctx.userId ?? null,
     });
     await writeAudit(tx, {
@@ -643,15 +654,16 @@ export async function applyLeaveToSchedule(
       action: "leave_applied",
       entityType: "schedule",
       entityId: sched.id,
-      metadata: { sourceScheduleId, internIndex, startWeek, leaveWeeks, version },
+      metadata: { sourceScheduleId, internIndex, startWeek, leaveWeeks, version, carryOver: result.carryOver },
     });
 
     return {
       scheduleId: sched.id,
       version,
       status: "draft" as const,
-      totalWeeks: result.totalWeeks,
+      totalWeeks: result.yearWeeks,
       resumedDept: result.resumedDept,
+      carryOver: result.carryOver,
       violations: coverage,
     };
   });

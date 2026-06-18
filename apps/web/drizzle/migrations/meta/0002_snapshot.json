@@ -533,6 +533,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "carry_over": {
+          "name": "carry_over",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_by": {
           "name": "created_by",
           "type": "uuid",

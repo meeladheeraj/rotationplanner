@@ -8,5 +8,5 @@ export { repairEdit, validateInternSchedule, proposeSwap } from "./repairEdit.js
 export type { RotationEdit, RepairEditResult } from "./repairEdit.js";
 export { analyzeFeasibility, countUncoverableCells } from "./feasibility.js";
 export type { FeasibilityResult, UncoverableCell } from "./feasibility.js";
-export { applyLeave, revalidateCoverage, internCompletesAll, LEAVE } from "./leave.js";
+export { applyLeave, revalidateCoverage, carryOverSchedule, LEAVE } from "./leave.js";
 export type { LeaveResult } from "./leave.js";

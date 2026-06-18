@@ -1,39 +1,39 @@
 // Intern leave & resume (FEEDBACK #9) — a post-generation adjustment.
 //
-// Product rules (decided with the planner):
-//  - Departments FULLY completed before the leave are kept untouched.
-//  - The department the intern is partway through when leave begins is
-//    RESTARTED in full on return. The partial pre-leave weeks stay as history
-//    (they count toward coverage for those past weeks) but do NOT count toward
-//    completion — the intern redoes that department from scratch.
-//  - The remaining not-yet-completed departments follow, in their existing
-//    order.
-//  - Leave weeks are marked with the LEAVE sentinel. The intern's personal
-//    timeline (and therefore the roster) extends to fit the resumed blocks;
-//    other interns are unchanged and padded with LEAVE on the extended tail.
+// Product model (corrected): the academic year is HARD-CAPPED at `yearWeeks`
+// (the config's total weeks). A leave never extends the year. Instead:
+//  - Departments FULLY completed before the leave are kept.
+//  - The department the intern was partway through is RESTARTED on return (the
+//    partial pre-leave weeks remain as history but don't count toward
+//    completion).
+//  - On return we fit as many remaining departments as wholly fit before the
+//    year ends; whatever doesn't fit becomes CARRY-OVER for the next batch.
+//  - Leave weeks (and any idle weeks at the year's end) use the LEAVE sentinel.
 //
-// Re-validation after a leave is COVERAGE-ONLY and length-agnostic: the classic
-// fixed-length / each-department-exactly-once structural rule no longer applies
-// once a leave has been introduced (a restart legitimately repeats a block, and
-// the timeline is longer). Use `revalidateCoverage` for the adjusted roster.
+// The current roster stays exactly `yearWeeks` long — only the affected intern's
+// row changes; everyone else is untouched. Re-validation is coverage-only.
+// `carryOverSchedule` lays out a carry-over intern's remaining departments for
+// the NEXT batch (a partial schedule that finishes early).
 
 import { schedToBlocks } from "./generate.js";
 import type { Department, InternSchedule, Violation } from "./types.js";
 
-/** Sentinel week value meaning "not in any department" (on leave / idle tail). */
+/** Sentinel week value meaning "not in any department" (on leave / idle). */
 export const LEAVE = -1;
 
 const DEFAULT_MIN_COVERAGE = 2;
 
 export interface LeaveResult {
+  /** Updated roster — SAME length (yearWeeks); only the affected intern changed. */
   internSchedules: InternSchedule[];
-  /** weekDeptCount[week][dept] over the (possibly extended) timeline. */
   weekDeptCount: number[][];
-  totalWeeks: number;
+  yearWeeks: number;
   affectedInternId: number;
-  /** Department the intern resumed (restarted) on return, or null if none remained. */
+  /** Department restarted/resumed in-year (first one that fit), or null. */
   resumedDept: number | null;
-  /** Inclusive leave week range. */
+  /** Departments the intern could NOT finish this year — carry to next batch. */
+  carryOver: number[];
+  /** Inclusive leave week range within the year (clamped to the year end). */
   leaveStart: number;
   leaveEnd: number;
 }
@@ -42,26 +42,22 @@ function durations(departments: Department[]): number[] {
   return departments.map((d) => d.weeks);
 }
 
-/** Departments the intern has FULLY completed in weeks strictly before `before`. */
-function completedBefore(
-  schedule: number[],
-  departments: Department[],
-  before: number,
-): Set<number> {
+/** Departments FULLY completed in weeks strictly before `before`. */
+function completedBefore(schedule: number[], departments: Department[], before: number): Set<number> {
   const dur = durations(departments);
   const done = new Set<number>();
   for (const b of schedToBlocks(schedule)) {
-    if (b.dept < 0) continue;
-    if (b.end < before && b.end - b.start + 1 === dur[b.dept]!) done.add(b.dept);
+    if (b.dept >= 0 && b.end < before && b.end - b.start + 1 === dur[b.dept]!) done.add(b.dept);
   }
   return done;
 }
 
 /**
- * Apply a leave to one intern and return the adjusted roster.
+ * Apply a leave to one intern within a year-capped roster.
  *
- * @param startWeek  0-based week the leave begins (inclusive); 0..schedule.length.
+ * @param startWeek  0-based week the leave begins (inclusive); 0..yearWeeks.
  * @param leaveWeeks number of consecutive weeks absent (>= 1).
+ * @param yearWeeks  the fixed year length; defaults to the roster's row length.
  */
 export function applyLeave(
   internSchedules: InternSchedule[],
@@ -69,14 +65,16 @@ export function applyLeave(
   internId: number,
   startWeek: number,
   leaveWeeks: number,
+  yearWeeks?: number,
 ): LeaveResult {
   if (!Number.isInteger(leaveWeeks) || leaveWeeks < 1) {
     throw new Error("leaveWeeks must be a positive integer");
   }
   const target = internSchedules.find((s) => s.id === internId);
   if (!target) throw new Error(`Unknown intern id ${internId}`);
+  const L = yearWeeks ?? target.schedule.length;
   const sched = target.schedule;
-  if (!Number.isInteger(startWeek) || startWeek < 0 || startWeek > sched.length) {
+  if (!Number.isInteger(startWeek) || startWeek < 0 || startWeek > L) {
     throw new Error("startWeek out of range");
   }
   const dur = durations(departments);
@@ -85,44 +83,78 @@ export function applyLeave(
   const completed = completedBefore(sched, departments, startWeek);
   const activeDept = startWeek < sched.length ? sched[startWeek]! : LEAVE;
 
-  // Remaining departments to (re)do, active department first, then the rest in
-  // the order they currently appear from startWeek onward.
+  // Remaining departments to (re)do, active first, then the rest in order.
   const remaining: number[] = [];
   const pushNeeded = (d: number) => {
     if (d >= 0 && !completed.has(d) && !remaining.includes(d)) remaining.push(d);
   };
   pushNeeded(activeDept);
   for (let w = startWeek; w < sched.length; w++) pushNeeded(sched[w]!);
-  // Safety net: any not-yet-completed department that didn't appear ahead
-  // (possible after prior leaves) is still owed — append in config order.
   for (let d = 0; d < departments.length; d++) pushNeeded(d);
 
+  // Leave occupies weeks within the year only.
+  const leaveInYear = Math.max(0, Math.min(leaveWeeks, L - startWeek));
+  let available = L - startWeek - leaveInYear; // weeks left this year after the leave
+
+  const placed: number[] = [];
+  const carryOver: number[] = [];
+  let stopped = false;
+  for (const d of remaining) {
+    if (!stopped && dur[d]! <= available) {
+      placed.push(d);
+      available -= dur[d]!;
+    } else {
+      stopped = true; // preserve order: once one doesn't fit, the rest carry over
+      carryOver.push(d);
+    }
+  }
+
   const resume: number[] = [];
-  for (const d of remaining) for (let i = 0; i < dur[d]!; i++) resume.push(d);
+  for (const d of placed) for (let i = 0; i < dur[d]!; i++) resume.push(d);
 
-  const newSched = [...prefix, ...new Array<number>(leaveWeeks).fill(LEAVE), ...resume];
-
-  // Pad every intern to the new maximum length with LEAVE.
-  const lengths = internSchedules.map((s) => s.schedule.length);
-  const newLen = Math.max(newSched.length, ...lengths);
-  const pad = (arr: number[]): number[] =>
-    arr.length >= newLen
-      ? arr.slice(0, newLen)
-      : [...arr, ...new Array<number>(newLen - arr.length).fill(LEAVE)];
+  const idle = L - prefix.length - leaveInYear - resume.length;
+  const inYear = [
+    ...prefix,
+    ...new Array<number>(leaveInYear).fill(LEAVE),
+    ...resume,
+    ...new Array<number>(Math.max(0, idle)).fill(LEAVE),
+  ].slice(0, L);
 
   const out: InternSchedule[] = internSchedules.map((s) =>
-    s.id === internId ? { id: s.id, schedule: pad(newSched) } : { id: s.id, schedule: pad(s.schedule) },
+    s.id === internId ? { id: s.id, schedule: inYear } : { id: s.id, schedule: s.schedule },
   );
 
   return {
     internSchedules: out,
-    weekDeptCount: buildWeekDeptCount(departments, out, newLen),
-    totalWeeks: newLen,
+    weekDeptCount: buildWeekDeptCount(departments, out, L),
+    yearWeeks: L,
     affectedInternId: internId,
-    resumedDept: remaining.length > 0 ? remaining[0]! : null,
+    resumedDept: placed.length > 0 ? placed[0]! : null,
+    carryOver,
     leaveStart: startWeek,
-    leaveEnd: startWeek + leaveWeeks - 1,
+    leaveEnd: startWeek + leaveInYear - 1,
   };
+}
+
+/**
+ * Lay out a carry-over intern's remaining departments for the NEXT batch:
+ * contiguous full blocks from week 0, idle (LEAVE) for the rest of the year.
+ * The intern finishes early — exactly what "people with only certain weeks"
+ * means in the new batch.
+ */
+export function carryOverSchedule(
+  departments: Department[],
+  carryOver: number[],
+  yearWeeks: number,
+): number[] {
+  const dur = durations(departments);
+  const out: number[] = [];
+  for (const d of carryOver) {
+    if (d < 0 || d >= departments.length) continue;
+    for (let i = 0; i < dur[d]!; i++) out.push(d);
+  }
+  while (out.length < yearWeeks) out.push(LEAVE);
+  return out.slice(0, yearWeeks);
 }
 
 function buildWeekDeptCount(
@@ -141,9 +173,8 @@ function buildWeekDeptCount(
 }
 
 /**
- * Coverage re-validation over a (possibly leave-extended, variable-length)
- * roster. Counts presence per week across the longest schedule, skipping
- * LEAVE/idle weeks, and flags any (week, dept) below its minCoverage.
+ * Coverage re-validation, skipping LEAVE/idle weeks. Flags any (week, dept)
+ * below its minCoverage across the longest schedule provided.
  */
 export function revalidateCoverage(
   departments: Department[],
@@ -160,19 +191,4 @@ export function revalidateCoverage(
       if (c < minCov[d]!) violations.push({ week: w, dept: d, count: c, required: minCov[d]! });
     }
   return violations;
-}
-
-/** Whether an intern has at least one FULL contiguous block of every department. */
-export function internCompletesAll(
-  schedule: number[],
-  departments: Department[],
-): { complete: boolean; missing: number[] } {
-  const dur = durations(departments);
-  const have = new Set<number>();
-  for (const b of schedToBlocks(schedule)) {
-    if (b.dept >= 0 && b.end - b.start + 1 === dur[b.dept]!) have.add(b.dept);
-  }
-  const missing: number[] = [];
-  for (let d = 0; d < departments.length; d++) if (!have.has(d)) missing.push(d);
-  return { complete: missing.length === 0, missing };
 }

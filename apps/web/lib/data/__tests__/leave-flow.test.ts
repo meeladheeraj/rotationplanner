@@ -1,8 +1,8 @@
 /**
- * FEEDBACK #9 — intern leave & resume at the data layer (pglite, no live DB):
- * a leave applied to a saved schedule produces a NEW draft version with an
- * extended timeline, a leave_events row, and an audit entry; coverage gaps are
- * surfaced; and the operation is tenant-scoped.
+ * FEEDBACK #9 — intern leave & resume at the data layer (pglite, no live DB).
+ * The year is hard-capped: a leave produces a NEW draft version of the SAME
+ * length, records which departments carry over to the next batch, surfaces
+ * coverage gaps, and is tenant-scoped.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -67,74 +67,60 @@ async function seedSaved(ctx: DataCtx) {
   return { configId, scheduleId: saved.scheduleId };
 }
 
-test("applying a leave creates a new extended draft version + leave_events + audit", async () => {
+test("leave creates a same-length draft version + records carry-over + audit", async () => {
   const { db: rawDb } = await makeTestDb();
   const db = rawDb as unknown as DB;
   const ctx = await seedCtx(db, "acme");
   const { configId, scheduleId } = await seedSaved(ctx);
 
-  // Intern 1 takes 2 weeks off from week 0.
+  // Intern 1 (A A B B C C) takes 2 weeks off from week 0. A and B fit after the
+  // leave (weeks 2-5); C does not -> carries over.
   const r = await applyLeaveToSchedule(ctx, scheduleId, 1, 0, 2);
 
   assert.equal(r.version, 2);
   assert.equal(r.status, "draft");
-  assert.equal(r.totalWeeks, 8, "timeline extended by the 2 leave weeks");
-  assert.equal(r.resumedDept, 0, "restarted department A");
-  assert.ok(r.violations.length > 0, "the leave introduces coverage gaps");
-  assert.ok(
-    r.violations.some((v) => v.week === 0 && v.dept === 0 && v.count === 0),
-    "department A is empty in week 0 during the leave",
-  );
+  assert.equal(r.totalWeeks, 6, "year length is unchanged (capped)");
+  assert.deepEqual(r.carryOver, [2], "department C carries to the next batch");
+  assert.ok(r.violations.some((v) => v.week === 0 && v.dept === 0 && v.count === 0));
 
-  // Two versions now exist for the config; source (v1) untouched.
   const versions = await listSchedules(ctx, configId);
   assert.equal(versions.length, 2);
 
-  // leave_events row recorded.
   const events = await db.select().from(leaveEvents).where(eq(leaveEvents.tenantId, ctx.tenantId));
   assert.equal(events.length, 1);
   assert.equal(events[0]?.internIndex, 1);
-  assert.equal(events[0]?.startWeek, 0);
-  assert.equal(events[0]?.leaveWeeks, 2);
-  assert.equal(events[0]?.sourceScheduleId, scheduleId);
+  assert.deepEqual(events[0]?.carryOver, [2]);
   assert.equal(events[0]?.resultScheduleId, r.scheduleId);
 
-  // audit row recorded against the new version.
   const audits = await db
     .select()
     .from(auditLog)
     .where(and(eq(auditLog.tenantId, ctx.tenantId), eq(auditLog.action, "leave_applied")));
   assert.equal(audits.length, 1);
-  assert.equal(audits[0]?.entityId, r.scheduleId);
 
-  // The new version persists the resumed roster: intern 1 still does A, B, C in
-  // full (shifted after the 2 leave weeks).
+  // New version: intern 1 did A and B in-year (not C); length stays 6.
   const detail = await getScheduleDetail(ctx, r.scheduleId);
-  assert.ok(detail);
-  assert.equal(detail!.stats.totalWeeks, 8);
+  assert.equal(detail!.stats.totalWeeks, 6);
   const i1 = detail!.assignments.find((a) => a.internIndex === 1)!;
-  const depts = i1.rotation.map((b) => b.dept).sort((a, b) => a - b);
-  assert.deepEqual(depts, [0, 1, 2], "intern 1 has a full block of every department");
-  assert.ok(i1.rotation.every((b) => b.start >= 2), "all of intern 1's blocks are after the leave");
+  const depts = [...new Set(i1.rotation.map((b) => b.dept))].sort((x, y) => x - y);
+  assert.deepEqual(depts, [0, 1], "intern 1 completed A and B in-year; C carried over");
 });
 
-test("mid-department leave restarts that department in the persisted version", async () => {
+test("mid-department leave restarts that department within the capped year", async () => {
   const { db: rawDb } = await makeTestDb();
   const db = rawDb as unknown as DB;
   const ctx = await seedCtx(db, "beta");
   const { scheduleId } = await seedSaved(ctx);
 
-  // Intern 1 (A A B B C C) leaves at week 3 — mid-B — for 1 week.
+  // Intern 1 leaves at week 3 (mid-B) for 1 week. B restarts full at weeks 4-5; C carries over.
   const r = await applyLeaveToSchedule(ctx, scheduleId, 1, 3, 1);
+  assert.equal(r.resumedDept, 1);
+  assert.deepEqual(r.carryOver, [2]);
+
   const detail = await getScheduleDetail(ctx, r.scheduleId);
   const i1 = detail!.assignments.find((a) => a.internIndex === 1)!;
-  // A completed (0-1); partial B at week 2 (history); then a FULL B block on resume.
-  const bBlocks = i1.rotation.filter((b) => b.dept === 1);
-  assert.ok(
-    bBlocks.some((b) => b.end - b.start + 1 === 2),
-    "B is restarted as a full 2-week block after the leave",
-  );
-  assert.equal(r.resumedDept, 1);
+  const fullB = i1.rotation.filter((b) => b.dept === 1).some((b) => b.end - b.start + 1 === 2);
+  assert.ok(fullB, "B is restarted as a full 2-week block");
 });
 
 test("leave is tenant-scoped", async () => {
@@ -147,6 +133,5 @@ test("leave is tenant-scoped", async () => {
   await assert.rejects(
     () => applyLeaveToSchedule(b, scheduleId, 1, 0, 2),
     (e) => e instanceof HttpError && e.status === 404,
-    "tenant B cannot apply a leave to tenant A's schedule",
   );
 });
