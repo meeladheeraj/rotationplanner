@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "pnpm --filter @rp/engine build && pnpm build"
+  "buildCommand": "pnpm --filter @rp/engine build && pnpm build",
+  "git": { "deploymentEnabled": false }
 }
