@@ -17,4 +17,5 @@ personal/
 # Internal build/process docs + original source (kept on disk, not published)
 BUILD_SPEC.md
 PROGRESS.md
+FEEDBACK.md
 _source/
