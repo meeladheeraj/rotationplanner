@@ -7,6 +7,7 @@ import { requireTenant } from "@/lib/tenant";
 import { reconstructResult } from "@/lib/schedule/reconstruct";
 import { NamedScheduleView } from "@/components/NamedScheduleView";
 import { LeaveControl } from "@/components/LeaveControl";
+import { CarryOverControl } from "@/components/CarryOverControl";
 
 export const dynamic = "force-dynamic";
 
@@ -68,13 +69,17 @@ export default async function ScheduleViewPage({
           {detail.stats.minCount}/dept/wk
         </span>
         {(ctx.user.role === "owner" || ctx.user.role === "admin") && (
-          <div className="ml-auto">
+          <div className="ml-auto flex gap-2">
             <LeaveControl
               scheduleId={detail.id}
               totalWeeks={detail.stats.totalWeeks}
               interns={detail.assignments
                 .map((a) => ({ index: a.internIndex, label: a.internLabel }))
                 .sort((x, y) => x.index - y.index)}
+            />
+            <CarryOverControl
+              scheduleId={detail.id}
+              departments={departments.map((d, i) => ({ index: i, name: d.name }))}
             />
           </div>
         )}

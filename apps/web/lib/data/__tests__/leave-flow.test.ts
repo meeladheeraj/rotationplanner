@@ -14,6 +14,7 @@ import type { DB } from "@/db";
 import { auditLog, leaveEvents, schedules, tenants, users } from "@/db/schema";
 import { createConfig, type DataCtx } from "@/lib/data/configs";
 import {
+  addCarryOverInterns,
   applyLeaveToSchedule,
   getScheduleDetail,
   listSchedules,
@@ -121,6 +122,39 @@ test("mid-department leave restarts that department within the capped year", asy
   const i1 = detail!.assignments.find((a) => a.internIndex === 1)!;
   const fullB = i1.rotation.filter((b) => b.dept === 1).some((b) => b.end - b.start + 1 === 2);
   assert.ok(fullB, "B is restarted as a full 2-week block");
+});
+
+test("adding carry-over students appends partial-schedule interns as a new version", async () => {
+  const { db: rawDb } = await makeTestDb();
+  const db = rawDb as unknown as DB;
+  const ctx = await seedCtx(db, "gamma");
+  const { configId, scheduleId } = await seedSaved(ctx);
+
+  // A returning student who only needs department C (index 2).
+  const r = await addCarryOverInterns(ctx, scheduleId, [
+    { internLabel: "Returning — Asha", departments: [2] },
+  ]);
+
+  assert.equal(r.added, 1);
+  assert.equal(r.version, 2);
+
+  const versions = await listSchedules(ctx, configId);
+  assert.equal(versions.length, 2);
+
+  const detail = await getScheduleDetail(ctx, r.scheduleId);
+  assert.equal(detail!.assignments.length, 4, "3 original + 1 carry-over");
+  const added = detail!.assignments.find((a) => a.internLabel === "Returning — Asha")!;
+  assert.ok(added);
+  // Only department C, laid out from week 0.
+  const depts = [...new Set(added.rotation.map((b) => b.dept))];
+  assert.deepEqual(depts, [2]);
+  assert.equal(added.rotation[0]?.start, 0, "carry-over schedule starts at week 0");
+
+  // rejects an out-of-range department
+  await assert.rejects(
+    () => addCarryOverInterns(ctx, scheduleId, [{ internLabel: "X", departments: [99] }]),
+    (e) => e instanceof HttpError && e.status === 400,
+  );
 });
 
 test("leave is tenant-scoped", async () => {

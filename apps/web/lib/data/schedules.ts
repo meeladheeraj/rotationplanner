@@ -9,6 +9,7 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 
 import {
   applyLeave,
+  carryOverSchedule,
   proposeSwap,
   repairEdit,
   revalidateCoverage,
@@ -666,5 +667,151 @@ export async function applyLeaveToSchedule(
       carryOver: result.carryOver,
       violations: coverage,
     };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Next batch — manually add carry-over students with their pending departments
+// ---------------------------------------------------------------------------
+
+export interface CarryOverStudent {
+  internLabel: string;
+  /** Department indices the student still needs to complete. */
+  departments: number[];
+}
+
+export interface AddCarryOverResult {
+  scheduleId: string;
+  version: number;
+  status: ScheduleStatus;
+  added: number;
+  violations: Violation[];
+}
+
+/**
+ * Add carry-over students (each with only their PENDING departments) to a batch,
+ * persisting the result as a NEW draft version. Each student gets a partial
+ * schedule laid out from week 0 (via the engine's carryOverSchedule) and is
+ * appended with a fresh intern index. Coverage-only re-validation (these rosters
+ * intentionally aren't the each-dept-once shape). Audited.
+ */
+export async function addCarryOverInterns(
+  ctx: DataCtx,
+  sourceScheduleId: string,
+  students: CarryOverStudent[],
+): Promise<AddCarryOverResult> {
+  if (!Array.isArray(students) || students.length === 0) {
+    throw new HttpError(400, "Provide at least one carry-over student");
+  }
+  const detail = await getScheduleDetail(ctx, sourceScheduleId);
+  if (!detail) throw new HttpError(404, "Schedule not found");
+  const loaded = await loadEngineConfig(ctx, detail.configId);
+  if (!loaded) throw new HttpError(404, "Config not found");
+
+  const depts = loaded.engineConfig.departments;
+  const M = depts.length;
+  const yearWeeks = loaded.totalWeeks;
+  const deptNames = depts.map((d) => d.name);
+
+  // Validate each student's pending departments.
+  for (const s of students) {
+    if (!s.internLabel?.trim()) throw new HttpError(400, "Each carry-over student needs a name/label");
+    if (!Array.isArray(s.departments) || s.departments.length === 0) {
+      throw new HttpError(400, `Student "${s.internLabel}" needs at least one pending department`);
+    }
+    for (const d of s.departments) {
+      if (!Number.isInteger(d) || d < 0 || d >= M) {
+        throw new HttpError(400, `Student "${s.internLabel}" references invalid department ${d}`);
+      }
+    }
+  }
+
+  const existing = detailToInternSchedules(detail.assignments, yearWeeks);
+  let nextId = existing.reduce((mx, s) => Math.max(mx, s.id), 0);
+  const labelByIndex = new Map(detail.assignments.map((a) => [a.internIndex, a.internLabel]));
+
+  const added: InternSchedule[] = students.map((s) => {
+    nextId += 1;
+    labelByIndex.set(nextId, s.internLabel.trim());
+    // unique, in-config-order departments
+    const unique = [...new Set(s.departments)].sort((a, b) => a - b);
+    return { id: nextId, schedule: carryOverSchedule(depts, unique, yearWeeks) };
+  });
+
+  const merged = [...existing, ...added];
+  const coverage = revalidateCoverage(depts, merged);
+
+  // Coverage-only stats over the fixed year.
+  const grid = Array.from({ length: yearWeeks }, () => new Array<number>(M).fill(0));
+  for (const { schedule } of merged)
+    for (let w = 0; w < yearWeeks; w++) {
+      const d = schedule[w];
+      if (d !== undefined && d >= 0 && d < M) grid[w]![d]! += 1;
+    }
+  let minCount = Infinity;
+  let maxCount = 0;
+  for (let w = 0; w < yearWeeks; w++)
+    for (let d = 0; d < M; d++) {
+      const c = grid[w]![d]!;
+      if (c < minCount) minCount = c;
+      if (c > maxCount) maxCount = c;
+    }
+  let theoreticalMinN = 0;
+  for (const d of depts) theoreticalMinN = Math.max(theoreticalMinN, Math.ceil(((d.minCoverage ?? 2) * yearWeeks) / d.weeks));
+  const stats: ScheduleStats = {
+    totalWeeks: yearWeeks,
+    minCount: minCount === Infinity ? 0 : minCount,
+    maxCount,
+    theoreticalMinN,
+    candidateCount: merged.length,
+    uncoverableCells: 0,
+    coverageViolations: coverage.length,
+  };
+
+  const newAssignments = merged.map((s) => ({
+    internIndex: s.id,
+    internLabel: labelByIndex.get(s.id) ?? `Intern ${s.id}`,
+    rotation: blocksFor(merged, s.id, deptNames).filter((b) => b.dept >= 0),
+  }));
+
+  return ctx.db.transaction(async (tx) => {
+    const versionRows = await tx
+      .select({ next: sql<number>`coalesce(max(${schedules.version}), 0) + 1` })
+      .from(schedules)
+      .where(eq(schedules.configId, detail.configId));
+    const version = Number(versionRows[0]?.next ?? 1);
+
+    const [sched] = await tx
+      .insert(schedules)
+      .values({
+        tenantId: ctx.tenantId,
+        configId: detail.configId,
+        version,
+        status: "draft",
+        generatedBy: ctx.userId ?? null,
+        engineVersion: ENGINE_VERSION,
+        stats,
+      })
+      .returning({ id: schedules.id });
+    if (!sched) throw new Error("Failed to create schedule version");
+
+    await tx.insert(assignments).values(
+      newAssignments.map((a) => ({
+        scheduleId: sched.id,
+        internIndex: a.internIndex,
+        internLabel: a.internLabel,
+        rotation: a.rotation,
+      })),
+    );
+    await writeAudit(tx, {
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      action: "carryover_added",
+      entityType: "schedule",
+      entityId: sched.id,
+      metadata: { sourceScheduleId, version, added: added.map((a) => a.id) },
+    });
+
+    return { scheduleId: sched.id, version, status: "draft" as const, added: added.length, violations: coverage };
   });
 }
