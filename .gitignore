@@ -13,3 +13,8 @@ _tmp_*
 
 # Personal / non-code working notes (not committed)
 personal/
+
+# Internal build/process docs + original source (kept on disk, not published)
+BUILD_SPEC.md
+PROGRESS.md
+_source/
