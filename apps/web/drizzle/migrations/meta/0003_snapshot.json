@@ -1,6 +1,6 @@
 {
-  "id": "ee9f9431-0323-42ac-a660-25620fade450",
-  "prevId": "6820d58c-adec-4807-ab77-084e6938f0b8",
+  "id": "75e104bf-4919-453e-b855-7db7cb4da213",
+  "prevId": "ee9f9431-0323-42ac-a660-25620fade450",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -530,6 +530,12 @@
         "resumed_dept": {
           "name": "resumed_dept",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "carry_over": {
+          "name": "carry_over",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
