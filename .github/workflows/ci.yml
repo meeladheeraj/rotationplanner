@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [master, release]
+  pull_request:
+    branches: [master, release]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build engine (@rp/engine -> dist)
+        run: pnpm --filter @rp/engine build
+
+      - name: Typecheck
+        run: |
+          pnpm --filter @rp/engine typecheck
+          pnpm --filter @rp/web typecheck
+
+      - name: Engine tests
+        run: pnpm --filter @rp/engine test
+
+      - name: Web tests
+        run: pnpm --filter @rp/web test
+
+      - name: Next production build
+        run: pnpm --filter @rp/web build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
