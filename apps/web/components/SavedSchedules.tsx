@@ -36,6 +36,8 @@ export function SavedSchedules({ configId, refreshKey }: { configId: string; ref
   const [shareUrls, setShareUrls] = useState<Record<string, string>>({});
   // Schedule id whose URL was just copied (drives the transient "Copied!" confirmation).
   const [copied, setCopied] = useState<string | null>(null);
+  // `${id}:${kind}` currently being generated, for the export spinner.
+  const [downloading, setDownloading] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/configs/${configId}/schedules`);
@@ -84,6 +86,29 @@ export function SavedSchedules({ configId, refreshKey }: { configId: string; ref
       setNote(e instanceof Error ? e.message : "Share failed");
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function downloadFile(id: string, kind: "pdf" | "xlsx", version: number) {
+    const key = `${id}:${kind}`;
+    setDownloading(key);
+    setNote(null);
+    try {
+      const res = await fetch(`/api/schedules/${id}/${kind}`);
+      if (!res.ok) throw new Error(`Could not generate the ${kind.toUpperCase()} export`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `schedule-v${version}.${kind}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "Export failed");
+    } finally {
+      setDownloading(null);
     }
   }
 
@@ -178,18 +203,36 @@ export function SavedSchedules({ configId, refreshKey }: { configId: string; ref
                       )}
                     </button>
                   )}
-                  <a
-                    href={`/api/schedules/${s.id}/pdf`}
-                    className="rounded border border-gray-300 px-3 py-1 text-xs hover:bg-gray-100"
+                  <button
+                    type="button"
+                    onClick={() => downloadFile(s.id, "pdf", s.version)}
+                    disabled={downloading === `${s.id}:pdf`}
+                    className="inline-flex items-center gap-1 rounded border border-gray-300 px-3 py-1 text-xs hover:bg-gray-100 disabled:opacity-60"
                   >
-                    PDF
-                  </a>
-                  <a
-                    href={`/api/schedules/${s.id}/xlsx`}
-                    className="rounded border border-gray-300 px-3 py-1 text-xs hover:bg-gray-100"
+                    {downloading === `${s.id}:pdf` ? (
+                      <>
+                        <Spinner />
+                        PDF…
+                      </>
+                    ) : (
+                      "PDF"
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => downloadFile(s.id, "xlsx", s.version)}
+                    disabled={downloading === `${s.id}:xlsx`}
+                    className="inline-flex items-center gap-1 rounded border border-gray-300 px-3 py-1 text-xs hover:bg-gray-100 disabled:opacity-60"
                   >
-                    Excel
-                  </a>
+                    {downloading === `${s.id}:xlsx` ? (
+                      <>
+                        <Spinner />
+                        Excel…
+                      </>
+                    ) : (
+                      "Excel"
+                    )}
+                  </button>
                 </div>
               </td>
             </tr>
@@ -197,6 +240,15 @@ export function SavedSchedules({ configId, refreshKey }: { configId: string; ref
         </tbody>
       </table>
     </section>
+  );
+}
+
+function Spinner() {
+  return (
+    <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" />
+      <path d="M22 12a10 10 0 0 1-10 10" stroke="currentColor" strokeWidth="4" strokeLinecap="round" className="opacity-90" />
+    </svg>
   );
 }
 

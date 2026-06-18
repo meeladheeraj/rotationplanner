@@ -30,6 +30,7 @@ export function NamedScheduleView({
   const [nameByIndex, setNameByIndex] = useState<Record<number, string> | null>(null);
   const [count, setCount] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [dl, setDl] = useState<"pdf" | "xlsx" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -65,22 +66,32 @@ export function NamedScheduleView({
   }
 
   async function downloadServer(kind: "pdf" | "xlsx") {
-    const res = await fetch(`/api/schedules/${scheduleId}/${kind}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ nameByIndex }),
-    });
-    if (!res.ok) {
+    setDl(kind);
+    setError(null);
+    try {
+      const res = await fetch(`/api/schedules/${scheduleId}/${kind}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ nameByIndex }),
+      });
+      if (!res.ok) {
+        setError(`Could not generate the ${kind.toUpperCase()} export`);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${baseName}.${kind}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
       setError(`Could not generate the ${kind.toUpperCase()} export`);
-      return;
+    } finally {
+      setDl(null);
     }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${baseName}.${kind}`;
-    a.click();
-    URL.revokeObjectURL(url);
   }
 
   function downloadCsv() {
@@ -135,19 +146,36 @@ export function NamedScheduleView({
           </span>
           <button
             onClick={() => downloadServer("pdf")}
-            className="rounded border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-100"
+            disabled={dl !== null}
+            className="inline-flex items-center gap-1 rounded border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-100 disabled:opacity-60"
           >
-            PDF
+            {dl === "pdf" ? (
+              <>
+                <Spinner />
+                Preparing PDF…
+              </>
+            ) : (
+              "PDF"
+            )}
           </button>
           <button
             onClick={() => downloadServer("xlsx")}
-            className="rounded border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-100"
+            disabled={dl !== null}
+            className="inline-flex items-center gap-1 rounded border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-100 disabled:opacity-60"
           >
-            Excel
+            {dl === "xlsx" ? (
+              <>
+                <Spinner />
+                Preparing Excel…
+              </>
+            ) : (
+              "Excel"
+            )}
           </button>
           <button
             onClick={downloadCsv}
-            className="rounded border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-100"
+            disabled={dl !== null}
+            className="rounded border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-100 disabled:opacity-60"
           >
             CSV
           </button>
@@ -156,5 +184,14 @@ export function NamedScheduleView({
 
       <ScheduleViews result={result} departments={departments} nameById={nameByIndex ?? undefined} />
     </div>
+  );
+}
+
+function Spinner() {
+  return (
+    <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" />
+      <path d="M22 12a10 10 0 0 1-10 10" stroke="currentColor" strokeWidth="4" strokeLinecap="round" className="opacity-90" />
+    </svg>
   );
 }
