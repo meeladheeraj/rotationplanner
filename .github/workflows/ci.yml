@@ -1,10 +1,9 @@
-name: CI
+name: CI & Deploy
 
+# Manual trigger only — click "Run workflow" in the Actions tab.
+# CI (verify) runs first; deploy runs only if verify passes.
 on:
-  push:
-    branches: [master, release]
-  pull_request:
-    branches: [master, release]
+  workflow_dispatch:
 
 jobs:
   verify:
@@ -43,3 +42,19 @@ jobs:
         run: pnpm --filter @rp/web build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to Vercel (production)
+        run: |
+          npm install -g vercel@latest
+          vercel deploy --prod --yes --token="$VERCEL_TOKEN"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
