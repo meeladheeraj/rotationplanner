@@ -25,7 +25,8 @@ async function buildResponse(nameByIndex: Record<number, string> | null, id: str
 
   const buf = await renderRosterPdf({
     configName: config.name,
-    totalWeeks: config.totalWeeks,
+    // Use the version's own length so leave-extended rosters export in full.
+    totalWeeks: detail.stats.totalWeeks || config.totalWeeks,
     version: detail.version,
     status: detail.status,
     generatedAt: detail.generatedAt,
