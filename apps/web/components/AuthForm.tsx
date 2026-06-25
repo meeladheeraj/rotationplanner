@@ -4,23 +4,43 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+type FieldErrors = { email?: string; password?: string; org?: string };
+
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [tenantName, setTenantName] = useState("");
   const [remember, setRemember] = useState(true);
+  const [errors, setErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
+  function validate(): boolean {
+    const e: FieldErrors = {};
+    const mail = email.trim();
+    if (!mail) e.email = "Email is required";
+    else if (!EMAIL_RE.test(mail)) e.email = "Enter a valid email address";
+    if (!password) e.password = "Password is required";
+    else if (password.length < 8) e.password = "Password must be at least 8 characters";
+    if (mode === "register" && !tenantName.trim()) e.org = "Organization name is required";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  }
+
+  async function submit(ev: React.FormEvent) {
+    ev.preventDefault();
     setError(null);
+    if (!validate()) return;
+    setBusy(true);
     try {
       const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
       const body =
-        mode === "login" ? { email, password } : { email, password, tenantName };
+        mode === "login"
+          ? { email: email.trim(), password }
+          : { email: email.trim(), password, tenantName: tenantName.trim() };
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -36,38 +56,61 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     }
   }
 
+  const inputClass = (invalid?: string) =>
+    `w-full rounded-lg border px-3.5 py-2.5 text-slate-900 placeholder:text-slate-400 transition focus:outline-none focus:ring-4 ${
+      invalid
+        ? "border-red-400 focus:border-red-500 focus:ring-red-100"
+        : "border-slate-300 focus:border-brand focus:ring-brand/15"
+    }`;
+
   return (
-    <form onSubmit={submit} className="space-y-4">
+    <form onSubmit={submit} noValidate className="space-y-4">
       {mode === "register" && (
-        <Field label="Organization name">
+        <Field label="Organization name" error={errors.org}>
           <input
             value={tenantName}
-            onChange={(e) => setTenantName(e.target.value)}
+            onChange={(e) => {
+              setTenantName(e.target.value);
+              if (errors.org) setErrors((p) => ({ ...p, org: undefined }));
+            }}
             placeholder="My Hospital"
-            className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-slate-900 placeholder:text-slate-400 transition focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15"
+            aria-invalid={!!errors.org}
+            className={inputClass(errors.org)}
           />
         </Field>
       )}
-      <Field label="Email">
+
+      <Field label="Email" error={errors.email}>
         <input
           type="email"
-          required
+          inputMode="email"
+          autoComplete="email"
           placeholder="you@hospital.org"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="w-full rounded-md border border-gray-300 px-3 py-2 focus:border-brand focus:outline-none"
+          onChange={(e) => {
+            setEmail(e.target.value);
+            if (errors.email) setErrors((p) => ({ ...p, email: undefined }));
+          }}
+          aria-invalid={!!errors.email}
+          className={inputClass(errors.email)}
         />
       </Field>
-      <Field label="Password">
+
+      <Field label="Password" error={errors.password}>
         <input
           type="password"
-          required
-          minLength={8}
+          autoComplete={mode === "login" ? "current-password" : "new-password"}
+          placeholder={mode === "register" ? "At least 8 characters" : ""}
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full rounded-md border border-gray-300 px-3 py-2 focus:border-brand focus:outline-none"
+          onChange={(e) => {
+            setPassword(e.target.value);
+            if (errors.password) setErrors((p) => ({ ...p, password: undefined }));
+          }}
+          aria-invalid={!!errors.password}
+          className={inputClass(errors.password)}
         />
       </Field>
+
       {mode === "login" && (
         <div className="flex items-center justify-between">
           <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
@@ -79,16 +122,18 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
             />
             Remember me
           </label>
-          <Link href="/login" className="text-sm font-medium text-brand hover:underline">
+          <Link href="/forgot-password" className="text-sm font-medium text-brand hover:underline">
             Forgot password?
           </Link>
         </div>
       )}
+
       {error && (
         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
           {error}
         </p>
       )}
+
       <button
         type="submit"
         disabled={busy}
@@ -96,6 +141,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       >
         {busy ? "Please wait…" : mode === "login" ? "Log in" : "Create account"}
       </button>
+
       <p className="text-center text-sm text-slate-500">
         {mode === "login" ? (
           <>
@@ -117,11 +163,20 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  error,
+  children,
+}: {
+  label: string;
+  error?: string;
+  children: React.ReactNode;
+}) {
   return (
     <label className="block">
       <span className="mb-1.5 block text-sm font-medium text-slate-700">{label}</span>
       {children}
+      {error && <span className="mt-1 block text-sm text-red-600">{error}</span>}
     </label>
   );
 }

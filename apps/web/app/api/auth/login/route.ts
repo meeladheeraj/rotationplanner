@@ -19,6 +19,10 @@ export async function POST(req: Request) {
   const email = asString(b.email)?.trim().toLowerCase() ?? "";
   const password = asString(b.password) ?? "";
 
+  if (!email || !password) {
+    return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
+  }
+
   // Rate-limit by email to blunt credential stuffing.
   if (!(await checkRateLimit(`login:${email}`, 10, 60_000))) {
     return NextResponse.json(
