@@ -283,6 +283,24 @@ export const leaveEvents = pgTable(
   }),
 );
 
+// Password reset tokens. Like sessions, `id` is the SHA-256 of the raw token
+// (the raw token only ever travels in the emailed link), single-use + expiring.
+export const passwordResetTokens = pgTable(
+  "password_reset_tokens",
+  {
+    id: text("id").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    userIdx: index("password_reset_tokens_user_idx").on(t.userId),
+  }),
+);
+
 // ---------------------------------------------------------------------------
 // Relations (for typed `db.query.*` access)
 // ---------------------------------------------------------------------------
