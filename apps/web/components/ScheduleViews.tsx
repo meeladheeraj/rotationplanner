@@ -8,6 +8,9 @@ import { deptColor } from "@/lib/client/palette";
 const PAGE_SIZE = 30;
 type Tab = "timeline" | "heatmap" | "cards" | "departments";
 
+/** Diagonal hatch used to mark "on leave" weeks (FEEDBACK #9). */
+const LEAVE_HATCH = "repeating-linear-gradient(45deg,#e5e7eb,#e5e7eb 3px,#f3f4f6 3px,#f3f4f6 6px)";
+
 /** For one department, the list of intern IDs present in each week of the year. */
 function deptWeeklyStudents(
   internSchedules: GenerateResult["internSchedules"],
@@ -39,6 +42,10 @@ export function ScheduleViews({
   const [page, setPage] = useState(0);
   const [selectedDept, setSelectedDept] = useState(0);
   const totalWeeks = result.stats.totalWeeks;
+  const hasLeave = useMemo(
+    () => result.internSchedules.some((s) => s.schedule.some((w) => w < 0)),
+    [result.internSchedules],
+  );
 
   /** Display label for an intern: the mapped name if present, else "S{id}". */
   const labelFor = (id: number): string => nameById?.[id] ?? `S${id}`;
@@ -111,7 +118,7 @@ export function ScheduleViews({
         </div>
       )}
 
-      <Legend departments={departments} />
+      <Legend departments={departments} showLeave={hasLeave} />
 
       {tab === "timeline" && (
         <div className="overflow-x-auto">
@@ -128,14 +135,19 @@ export function ScheduleViews({
                 <div className="flex h-6 flex-1 gap-px overflow-hidden rounded">
                   {blocks.map((b, bi) => {
                     const span = b.end - b.start + 1;
+                    const isLeave = b.dept < 0;
                     return (
                       <div
                         key={bi}
-                        title={`${departments[b.dept]?.name}: W${b.start + 1}–W${b.end + 1} (${span}w)`}
-                        style={{ flex: span, background: deptColor(b.dept) }}
-                        className="flex min-w-[2px] items-center justify-center text-[8px] font-semibold text-white"
+                        title={
+                          isLeave
+                            ? `On leave: W${b.start + 1}–W${b.end + 1} (${span}w)`
+                            : `${departments[b.dept]?.name}: W${b.start + 1}–W${b.end + 1} (${span}w)`
+                        }
+                        style={{ flex: span, background: isLeave ? LEAVE_HATCH : deptColor(b.dept) }}
+                        className={`flex min-w-[2px] items-center justify-center text-[8px] font-semibold ${isLeave ? "text-gray-500" : "text-white"}`}
                       >
-                        {span >= 3 ? departments[b.dept]?.name.substring(0, 5) : ""}
+                        {span >= 3 ? (isLeave ? "Leave" : departments[b.dept]?.name.substring(0, 5)) : ""}
                       </div>
                     );
                   })}
@@ -225,7 +237,7 @@ export function ScheduleViews({
                   {blocks.map((b, bi) => (
                     <div
                       key={bi}
-                      style={{ flex: b.end - b.start + 1, background: deptColor(b.dept) }}
+                      style={{ flex: b.end - b.start + 1, background: b.dept < 0 ? LEAVE_HATCH : deptColor(b.dept) }}
                       className="min-w-[1px]"
                     />
                   ))}
@@ -235,9 +247,14 @@ export function ScheduleViews({
                     {blocks.map((b, bi) => (
                       <tr key={bi} className="border-b border-gray-100 last:border-0">
                         <td className="w-5 py-1">
-                          <div className="h-2 w-2 rounded-sm" style={{ background: deptColor(b.dept) }} />
+                          <div
+                            className="h-2 w-2 rounded-sm"
+                            style={{ background: b.dept < 0 ? "#d1d5db" : deptColor(b.dept) }}
+                          />
                         </td>
-                        <td className="py-1 pl-1 text-xs font-medium">{departments[b.dept]?.name}</td>
+                        <td className="py-1 pl-1 text-xs font-medium">
+                          {b.dept < 0 ? <span className="text-gray-400">On leave</span> : departments[b.dept]?.name}
+                        </td>
                         <td className="py-1 text-right font-mono text-[11px] text-gray-400">
                           W{b.start + 1}
                           {b.start !== b.end ? `–${b.end + 1}` : ""}
@@ -376,7 +393,7 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: "ok
   );
 }
 
-function Legend({ departments }: { departments: Department[] }) {
+function Legend({ departments, showLeave }: { departments: Department[]; showLeave?: boolean }) {
   return (
     <div className="mb-3 flex flex-wrap gap-2">
       {departments.map((d, i) => (
@@ -385,6 +402,12 @@ function Legend({ departments }: { departments: Department[] }) {
           {d.name}
         </span>
       ))}
+      {showLeave && (
+        <span className="inline-flex items-center gap-1 text-[11px] text-gray-600">
+          <span className="h-2.5 w-2.5 rounded-sm" style={{ background: LEAVE_HATCH }} />
+          On leave
+        </span>
+      )}
     </div>
   );
 }

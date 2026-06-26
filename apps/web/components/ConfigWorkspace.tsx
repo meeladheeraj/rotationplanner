@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { schedToBlocks, type Config, type Department } from "@rp/engine";
 
@@ -66,16 +66,14 @@ export function ConfigWorkspace(props: Props) {
 
   const totalWeeks = departments.reduce((a, d) => a + d.weeks, 0);
 
-  function updateDept(i: number, field: keyof Department, value: string) {
+  function updateDeptName(i: number, name: string) {
     setConfigMsg(null);
-    setDepartments((prev) =>
-      prev.map((d, idx) => {
-        if (idx !== i) return d;
-        if (field === "weeks") return { ...d, weeks: Math.max(1, parseInt(value) || 1) };
-        if (field === "minCoverage") return { ...d, minCoverage: Math.max(1, parseInt(value) || 1) };
-        return { ...d, name: value };
-      }),
-    );
+    setDepartments((prev) => prev.map((d, idx) => (idx === i ? { ...d, name } : d)));
+  }
+
+  function setDeptNumber(i: number, field: "weeks" | "minCoverage", n: number) {
+    setConfigMsg(null);
+    setDepartments((prev) => prev.map((d, idx) => (idx === i ? { ...d, [field]: n } : d)));
   }
 
   function addDept() {
@@ -231,11 +229,10 @@ export function ConfigWorkspace(props: Props) {
         <div className="mb-4 flex items-end gap-4">
           <label className="block">
             <span className="text-xs font-medium text-gray-500">Interns</span>
-            <input
-              type="number"
-              min={1}
+            <NumberField
               value={nInterns}
-              onChange={(e) => setNInterns(Math.max(1, parseInt(e.target.value) || 1))}
+              min={1}
+              onCommit={setNInterns}
               className="mt-1 w-28 rounded-md border border-gray-300 px-3 py-1.5 font-mono text-sm focus:border-brand focus:outline-none"
             />
           </label>
@@ -267,25 +264,23 @@ export function ConfigWorkspace(props: Props) {
                   <td className="py-1 pr-3">
                     <input
                       value={d.name}
-                      onChange={(e) => updateDept(i, "name", e.target.value)}
+                      onChange={(e) => updateDeptName(i, e.target.value)}
                       className="w-full rounded border border-gray-200 px-2 py-1"
                     />
                   </td>
                   <td className="py-1 pr-3">
-                    <input
-                      type="number"
-                      min={1}
+                    <NumberField
                       value={d.weeks}
-                      onChange={(e) => updateDept(i, "weeks", e.target.value)}
+                      min={1}
+                      onCommit={(n) => setDeptNumber(i, "weeks", n)}
                       className="w-20 rounded border border-gray-200 px-2 py-1 font-mono"
                     />
                   </td>
                   <td className="py-1 pr-3">
-                    <input
-                      type="number"
-                      min={1}
+                    <NumberField
                       value={d.minCoverage ?? 2}
-                      onChange={(e) => updateDept(i, "minCoverage", e.target.value)}
+                      min={1}
+                      onCommit={(n) => setDeptNumber(i, "minCoverage", n)}
                       className="w-20 rounded border border-gray-200 px-2 py-1 font-mono"
                     />
                   </td>
@@ -386,6 +381,50 @@ export function ConfigWorkspace(props: Props) {
 
       <SavedSchedules configId={props.configId} refreshKey={savedKey} />
     </div>
+  );
+}
+
+/**
+ * Number input that you can actually clear and retype. It holds a string draft
+ * while editing (so backspacing to empty doesn't snap to the minimum), and only
+ * clamps to `min` on blur / Enter. Fixes the "stuck at 1 → 12, 13" bug.
+ */
+function NumberField({
+  value,
+  min = 1,
+  onCommit,
+  className,
+}: {
+  value: number;
+  min?: number;
+  onCommit: (n: number) => void;
+  className?: string;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  function commit() {
+    const n = parseInt(draft, 10);
+    const clamped = Number.isFinite(n) ? Math.max(min, n) : min;
+    setDraft(String(clamped));
+    if (clamped !== value) onCommit(clamped);
+  }
+
+  return (
+    <input
+      type="number"
+      min={min}
+      inputMode="numeric"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+      }}
+      className={className}
+    />
   );
 }
 
