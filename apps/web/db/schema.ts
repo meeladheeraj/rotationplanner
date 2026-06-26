@@ -253,6 +253,54 @@ export const feedback = pgTable(
   }),
 );
 
+// Intern leave & resume (FEEDBACK #9). Each row records a leave applied to a
+// source schedule version, which produced a new (result) schedule version.
+export const leaveEvents = pgTable(
+  "leave_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    sourceScheduleId: uuid("source_schedule_id")
+      .notNull()
+      .references(() => schedules.id, { onDelete: "cascade" }),
+    resultScheduleId: uuid("result_schedule_id")
+      .notNull()
+      .references(() => schedules.id, { onDelete: "cascade" }),
+    internIndex: integer("intern_index").notNull(),
+    startWeek: integer("start_week").notNull(),
+    leaveWeeks: integer("leave_weeks").notNull(),
+    resumedDept: integer("resumed_dept"),
+    // Departments the intern could not finish this year — carry to next batch.
+    carryOver: jsonb("carry_over").$type<number[]>(),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantIdx: index("leave_events_tenant_idx").on(t.tenantId),
+    resultIdx: index("leave_events_result_idx").on(t.resultScheduleId),
+  }),
+);
+
+// Password reset tokens. Like sessions, `id` is the SHA-256 of the raw token
+// (the raw token only ever travels in the emailed link), single-use + expiring.
+export const passwordResetTokens = pgTable(
+  "password_reset_tokens",
+  {
+    id: text("id").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    userIdx: index("password_reset_tokens_user_idx").on(t.userId),
+  }),
+);
+
 // ---------------------------------------------------------------------------
 // Relations (for typed `db.query.*` access)
 // ---------------------------------------------------------------------------
