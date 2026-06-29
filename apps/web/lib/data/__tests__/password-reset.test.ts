@@ -38,8 +38,8 @@ test("create + consume resets the password and is single-use", async () => {
   assert.equal(r.ok, true);
 
   const [row] = await db.select({ h: users.passwordHash }).from(users).where(eq(users.id, userId));
-  assert.equal(await verifyPassword("brandnewpass1", row!.h), true);
-  assert.equal(await verifyPassword("oldpassword1", row!.h), false);
+  assert.equal(await verifyPassword("brandnewpass1", row!.h!), true);
+  assert.equal(await verifyPassword("oldpassword1", row!.h!), false);
 
   // token cannot be reused
   const again = await consumeResetToken(db, created!.rawToken, "anotherpass1");

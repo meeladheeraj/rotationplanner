@@ -7,7 +7,7 @@ export default function RegisterPage() {
       heading="Create your account"
       subheading="Set up your organization and build a validated roster in minutes."
     >
-      <AuthForm mode="register" />
+      <AuthForm mode="register" googleEnabled={!!process.env.GOOGLE_CLIENT_ID} />
     </AuthLayout>
   );
 }

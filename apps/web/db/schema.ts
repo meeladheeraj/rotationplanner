@@ -46,13 +46,18 @@ export const users = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: "cascade" }),
     email: text("email").notNull(),
-    passwordHash: text("password_hash").notNull(),
+    // Nullable: Google-only accounts have no password (they authenticate via OAuth).
+    passwordHash: text("password_hash"),
+    // Google account subject id ("sub"), set when the user links/signs in with Google.
+    googleSub: text("google_sub"),
     role: text("role").$type<UserRole>().notNull().default("owner"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     // Email is globally unique so login (which has no tenant context yet) is unambiguous.
     emailIdx: uniqueIndex("users_email_idx").on(t.email),
+    // Unique per Google identity (multiple NULLs are allowed by Postgres).
+    googleSubIdx: uniqueIndex("users_google_sub_idx").on(t.googleSub),
     tenantIdx: index("users_tenant_idx").on(t.tenantId),
   }),
 );
