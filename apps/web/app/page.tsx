@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import type { ComponentType } from "react";
 
@@ -12,6 +13,8 @@ import {
   LogoMark,
 } from "@/components/Illustrations";
 import { getCurrentUser } from "@/lib/session";
+
+export const metadata: Metadata = { alternates: { canonical: "/" } };
 
 const features: { title: string; body: string; Icon: ComponentType<{ className?: string }> }[] = [
   {
